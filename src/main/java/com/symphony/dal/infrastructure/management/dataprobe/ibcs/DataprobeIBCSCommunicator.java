@@ -19,8 +19,13 @@ import java.util.stream.Collectors;
 
 import org.springframework.util.CollectionUtils;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeCommand;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeConstant;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.LoginInfo;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants.Util;
+import javax.security.auth.login.FailedLoginException;
 
 import com.avispl.symphony.api.dal.control.Controller;
 import com.avispl.symphony.api.dal.dto.control.ControllableProperty;
@@ -31,6 +36,7 @@ import com.avispl.symphony.api.dal.error.ResourceNotReachableException;
 import com.avispl.symphony.api.dal.monitor.Monitorable;
 import com.avispl.symphony.api.dal.monitor.aggregator.Aggregator;
 import com.avispl.symphony.dal.communicator.RestCommunicator;
+import com.avispl.symphony.dal.util.StringUtils;
 
 /**
  * /*
@@ -92,6 +98,18 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private boolean isEmergencyDelivery;
 
 	/**
+	 * A mapper for reading and writing JSON using Jackson library.
+	 * ObjectMapper provides functionality for converting between Java objects and JSON.
+	 * It can be used to serialize objects to JSON format, and deserialize JSON data to objects.
+	 */
+	private final ObjectMapper objectMapper = new ObjectMapper();
+
+	/**
+	 * the login info
+	 */
+	private LoginInfo loginInfo;
+
+	/**
 	 * Executor that runs all the async operations, that is posting and
 	 */
 	private ExecutorService executorService;
@@ -124,6 +142,13 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private volatile long validRetrieveStatisticsTimestamp;
 
 	/**
+	 * Aggregator inactivity timeout. If the {@link DataprobeIBCSCommunicator#retrieveMultipleStatistics()}  method is not
+	 * called during this period of time - device is considered to be paused, thus the Cloud API
+	 * is not supposed to be called
+	 */
+	private static final long retrieveStatisticsTimeOut = 3 * 60 * 1000;
+
+	/**
 	 * A private field that represents an instance of the YealinkCloudLoader class, which is responsible for loading device data for YealinkCloud
 	 */
 	private DataprobeIBCSCloudDataLoader deviceDataLoader;
@@ -137,6 +162,14 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private synchronized void updateAggregatorStatus() {
 		devicePaused = validRetrieveStatisticsTimestamp < System.currentTimeMillis();
+	}
+
+	/**
+	 * Uptime time stamp to valid one
+	 */
+	private synchronized void updateValidRetrieveStatisticsTimestamp() {
+		validRetrieveStatisticsTimestamp = System.currentTimeMillis() + retrieveStatisticsTimeOut;
+		updateAggregatorStatus();
 	}
 
 	class DataprobeIBCSCloudDataLoader implements Runnable {
@@ -251,7 +284,29 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * {@inheritDoc}
 	 */
 	@Override
-	protected void authenticate() throws Exception {}
+	protected void authenticate() throws Exception {
+		String jsonPayload = Util.authBody(this.getLogin(), this.getPassword(), DataprobeConstant.TIMEOUT_INTERVAL, DataprobeConstant.TIMEOUT_SCALE, null);
+		try {
+			String result = this.doPost(DataprobeCommand.API_LOGIN, jsonPayload);
+			JsonNode response = objectMapper.readTree(result);
+			if (response.has(DataprobeConstant.SUCCESS) && response.get(DataprobeConstant.SUCCESS).asText().equals(DataprobeConstant.TRUE)) {
+				if (response.at(DataprobeConstant.RESPONSE_SUCCESS).asBoolean()) {
+					String token = response.at("/token").asText();
+					if (loginInfo == null) {
+						loginInfo = new LoginInfo();
+					}
+					loginInfo.setToken(token);
+				} else {
+					loginInfo = null;
+					throw new FailedLoginException(response.at(DataprobeConstant.RESPONSE_MESSAGE).asText());
+				}
+			} else {
+				throw new FailedLoginException(response.get("message").asText());
+			}
+		} catch (Exception e) {
+			throw new FailedLoginException("Auth error when get token api " + e);
+		}
+	}
 
 	@Override
 	public List<AggregatedDevice> retrieveMultipleStatistics() {
@@ -276,6 +331,10 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	public List<Statistics> getMultipleStatistics() throws Exception {
 		reentrantLock.lock();
 		try {
+			if (loginInfo == null) {
+				loginInfo = new LoginInfo();
+			}
+			checkValidApiToken();
 			Map<String, String> stats = new HashMap<>();
 			Map<String, String> dynamicStatistics = new HashMap<>();
 			ExtendedStatistics extendedStatistics = new ExtendedStatistics();
@@ -352,9 +411,23 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			localExtendedStatistics.getStatistics().clear();
 			localExtendedStatistics.getControllableProperties().clear();
 		}
+		loginInfo = null;
 		nextDevicesCollectionIterationTimestamp = 0;
 		aggregatedDeviceList.clear();
 		cachedMonitoringDevice.clear();
 		super.internalDestroy();
+	}
+
+	/**
+	 * Check API token validation
+	 * If the token expires, we send a request to get a new token
+	 */
+	private void checkValidApiToken() throws Exception {
+		if (StringUtils.isNullOrEmpty(this.getLogin()) || StringUtils.isNullOrEmpty(this.getPassword())) {
+			throw new FailedLoginException("Username or Password field is empty. Please check device credentials");
+		}
+		if (this.loginInfo.isTimeout() || this.loginInfo.getToken() == null) {
+			authenticate();
+		}
 	}
 }

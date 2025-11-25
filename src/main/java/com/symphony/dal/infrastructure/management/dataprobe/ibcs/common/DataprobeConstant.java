@@ -12,6 +12,10 @@ package com.symphony.dal.infrastructure.management.dataprobe.ibcs.common;
  */
 public class DataprobeConstant {
 	public static final String BASE_URL = "services/v4.1";
+	public static final String TIMEOUT_INTERVAL = "60";
+	public static final String TIMEOUT_SCALE = "minutes";
+	public static final String RETRIEVE_MANAGE_LINK = "{\"token\":\"%s\", \"mac\":\"%s\"}";
+	public static final String DEVICES = "devices";
 	public static final String NONE = "None";
 	public static final String NOT_AVAILABLE = "N/A";
 	public static final String EMPTY = "";
