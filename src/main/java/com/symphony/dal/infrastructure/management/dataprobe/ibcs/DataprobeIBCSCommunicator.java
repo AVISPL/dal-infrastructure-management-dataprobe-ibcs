@@ -153,8 +153,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private DataprobeIBCSCloudDataLoader deviceDataLoader;
 
-
-
 	/**
 	 * Update the status of the device.
 	 * The device is considered as paused if did not receive any retrieveMultipleStatistics()

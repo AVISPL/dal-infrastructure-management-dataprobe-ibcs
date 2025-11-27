@@ -94,6 +94,20 @@ public class Util {
 		return FORMATTER.format(Instant.ofEpochMilli(epochMillis));
 	}
 
+	/**
+	 * Builds the JSON request body for authentication.
+	 * <p>
+	 * Includes username and password, and optionally either a revoke token
+	 * or a timeout object defined by interval and scale.
+	 *
+	 * @param user     the username
+	 * @param pass     the password
+	 * @param interval the timeout interval value (used if revoke is blank)
+	 * @param scale    the timeout scale (used if revoke is blank)
+	 * @param revoke   the revoke token, if provided
+	 * @return the JSON string representing the authentication request body
+	 * @throws JsonProcessingException if the JSON cannot be serialized
+	 */
 	public static String authBody(String user, String pass, String interval, String scale, String revoke)
 			throws JsonProcessingException {
 		ObjectNode root = MAPPER.createObjectNode();
@@ -111,6 +125,19 @@ public class Util {
 		return MAPPER.writeValueAsString(root);
 	}
 
+	/**
+	 * Builds the JSON request body for retrieving device information.
+	 * <p>
+	 * Always includes the token, and conditionally includes either a MAC address
+	 * or a list of types (and optionally a location) based on the provided values.
+	 *
+	 * @param token     the authentication token
+	 * @param allTypes  the set of types to request; an empty string is used if null or empty
+	 * @param location  the device location filter, may be blank
+	 * @param mac       the device MAC address; if provided, it takes precedence over other filters
+	 * @return the JSON string representing the request body
+	 * @throws JsonProcessingException if the JSON cannot be serialized
+	 */
 	public static String requestBody(String token, Set<String> allTypes, String location, String mac) throws JsonProcessingException {
 		ObjectNode root = MAPPER.createObjectNode();
 		root.put("token", token);
@@ -139,7 +166,12 @@ public class Util {
 		return MAPPER.writeValueAsString(root);
 	}
 
-
+	/**
+	 * Checks whether a string is null, empty, or contains only whitespace characters.
+	 *
+	 * @param s the string to check
+	 * @return {@code true} if the string is null, empty, or whitespace-only; {@code false} otherwise
+	 */
 	private static boolean isBlank(String s) {
 		return s == null || s.trim().isEmpty();
 	}
