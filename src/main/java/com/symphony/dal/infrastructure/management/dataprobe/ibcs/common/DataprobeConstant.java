@@ -15,15 +15,19 @@ public class DataprobeConstant {
 	public static final String TIMEOUT_INTERVAL = "60";
 	public static final String TIMEOUT_SCALE = "minutes";
 	public static final String RETRIEVE_MANAGE_LINK = "{\"token\":\"%s\", \"mac\":\"%s\"}";
+	public static final String RETRIEVE_CONFIGURATION = "{\"token\":\"%s\", \"mac\":\"%s\", \"tables\":\"%s\"}";
 	public static final String DEVICES = "devices";
 	public static final String NONE = "None";
 	public static final String NOT_AVAILABLE = "N/A";
 	public static final String EMPTY = "";
-	public static final String HASH = "#";
-	public static final String UNDER_SCORE = "_";
 	public static final String TRUE = "true";
 	public static final String ON = "On";
 	public static final String SUCCESS = "success";
+	public static final String TRIGGER_INFO_GROUP = "TriggerInfo_";
+	public static final String OUTLET_GROUP = "Outlet_";
+	public static final String STATUS = "Status";
+	public static final String HASH = "#";
+	public static final String UNDER_SCORE = "_";
 	public static final String OPEN_PARENTHESIS = "(";
 	public static final String CLOSE_PARENTHESIS = ")";
 
