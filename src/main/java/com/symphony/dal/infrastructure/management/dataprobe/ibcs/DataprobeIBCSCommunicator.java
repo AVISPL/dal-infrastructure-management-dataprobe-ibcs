@@ -337,12 +337,12 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					loginInfo = null;
 				}
 			} else {
-				throw new FailedLoginException("The Username or Password is incorrect, please check again");
+				throw new FailedLoginException("Cloud Service authentication failed, please check username and password.");
 			}
 		}catch (FailedLoginException e) {
 			throw e;
 		}catch (Exception e) {
-			throw new FailedLoginException("Unable to retrieve token API " + e);
+			throw new ResourceNotReachableException("Unable to retrieve API token. " + e);
 		}
 	}
 
@@ -653,7 +653,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
-			throw new ResourceNotReachableException("Failed to populate metadata information with deviceTypeFilter ",e);
+			logger.error("Failed to populate metadata information", e);
 		}
 	}
 
@@ -671,7 +671,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			JsonNode listResponse = objectMapper.readTree(result);
 			return listResponse.get("message").asText();
 		}catch (Exception e){
-			throw new ResourceNotReachableException("Can not retrieve manage link", e);
+			throw new ResourceNotReachableException("Unable to retrieve device management link", e);
 		}
 	}
 
