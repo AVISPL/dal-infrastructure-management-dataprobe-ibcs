@@ -25,8 +25,11 @@ import java.util.stream.Collectors;
 
 import org.springframework.util.CollectionUtils;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.DeviceConfig;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.G2ConfigurationRequest;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeCommand;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeConstant;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.LoginInfo;
@@ -299,6 +302,27 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	@Override
 	public void controlProperty(ControllableProperty cp) {
+		reentrantLock.lock();
+		try {
+			if (localExtendedStatistics == null) {
+				return;
+			}
+			String controlProperty = cp.getProperty();
+			String deviceId = cp.getDeviceId();
+			String value = String.valueOf(cp.getValue());
+
+			boolean exists = aggregatedDeviceList.stream().anyMatch(d -> d.getDeviceId().equals(deviceId));
+			if (!exists) throw new IllegalStateException(String.format("Unable to control property: %s as the device does not exist.", controlProperty));
+
+			if (controlProperty.startsWith("Configuration" + DataprobeConstant.HASH)) {
+				G2ConfigurationRequest g2ConfigurationRequest =	handleDeviceConfigurationControl(controlProperty, deviceId, value);
+				sendConfigurationToDevice(g2ConfigurationRequest);
+			}
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException(e);
+		} finally {
+			reentrantLock.unlock();
+		}
 	}
 
 	/**
@@ -737,12 +761,12 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			String value = mappingValue.get(name);
 			switch (device){
 				case DISABLE_OFF:
-					stats.remove(name);
 					Util.addAdvancedControlProperties(controls, stats, createSwitch(name, Integer.parseInt(value)), value );
 					break;
 				case UPGRADE_ENABLE:
-					stats.remove(name);
 					Util.addAdvancedControlProperties(controls, stats, createSwitch(device.getGroup() + DataprobeConstant.HASH + "UpgradeEnabled", Integer.parseInt(value)), value );
+					stats.remove(name);
+					mappingValue.remove(name);
 					break;
 				case INITIAL_STATE:
 					List<String> listInitial = Arrays.asList("On", "Off", "Last");
@@ -753,16 +777,18 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					for (int i = 0; i <= 99; i++){
 						timeToLogout.add(String.valueOf(i));
 					}
+					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(minutes)", timeToLogout, value), value);
 					stats.remove(name);
-					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", timeToLogout, value), value);
+					mappingValue.remove(name);
 					break;
 				case CYCLE_TIME:
 					List<String> cycleTime = new ArrayList<>();
 					for (int i = 1; i <= 999; i++){
 						cycleTime.add(String.valueOf(i));
 					}
-					stats.remove(name);
 					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", cycleTime, value), value);
+					stats.remove(name);
+					mappingValue.remove(name);
 					break;
 				default:
 					stats.putAll(mappingValue);
@@ -964,6 +990,68 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			}
 			map.putAll(mappingValue);
 			cachedMonitoringDevice.put(deviceMAC, map);
+		}
+	}
+
+	/**
+	 * Builds a {@link G2ConfigurationRequest} for a single device configuration change
+	 * based on the given control property and value.
+	 *
+	 * @param controlProperty the configuration control property (e.g. "Configuration#AutoLogout(s)")
+	 * @param deviceMAC       the MAC address of the target device
+	 * @param value           the new value to apply for the configuration field
+	 * @throws IllegalArgumentException     if the control property cannot be mapped to a configuration field
+	 */
+	private G2ConfigurationRequest handleDeviceConfigurationControl(String controlProperty, String deviceMAC, String value) throws JsonProcessingException {
+		ConfigurationDevice configField = ConfigurationDevice.detectControlProperty(controlProperty);
+		if (configField == null) {
+			throw new IllegalArgumentException("Unsupported device control property: " + controlProperty);
+		}
+		DeviceConfig deviceConfig = new DeviceConfig();
+		switch (configField) {
+			case LOCATION:
+				deviceConfig.setLocation(value);
+				break;
+			case CYCLE_TIME:
+				deviceConfig.setCycleTime(value);
+				break;
+			case DISABLE_OFF:
+				deviceConfig.setDisableOff(value);
+				break;
+			case INITIAL_STATE:
+				deviceConfig.setInitialState(value);
+				break;
+			case UPGRADE_ENABLE:
+				deviceConfig.setUpgradeEnable(value);
+				break;
+			case AUTO_LOGOUT:
+				deviceConfig.setAutoLogout(value);
+				break;
+			default:
+				throw new IllegalArgumentException("Unhandled configuration field: " + configField);
+		}
+		return new G2ConfigurationRequest(loginInfo.getToken(), deviceMAC, deviceConfig);
+	}
+
+	/**
+	 * Sends a configuration update request to the device and validates the response.
+	 * If the API reports a failure or an error occurs during the call,
+	 * a {@link ResourceNotReachableException} is thrown.
+	 *
+	 * @param request the configuration request to be sent to the device
+	 * @throws ResourceNotReachableException if the device configuration cannot be set
+	 */
+	private void sendConfigurationToDevice(G2ConfigurationRequest request) {
+		try {
+			String response = this.doPost(DataprobeCommand.CONFIG_SET, objectMapper.writeValueAsString(request));
+			JsonNode deviceResponse = objectMapper.readTree(response);
+
+			if (!deviceResponse.path("success").asText("").equalsIgnoreCase(DataprobeConstant.TRUE)) {
+				String message = deviceResponse.path("message").toString();
+				throw new ResourceNotReachableException("Failed to set configuration: " + message);
+			}
+		} catch (Exception e) {
+			throw new ResourceNotReachableException("Can not set device configuration", e);
 		}
 	}
 }

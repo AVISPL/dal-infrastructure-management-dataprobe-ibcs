@@ -4,6 +4,8 @@
 
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric;
 
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeConstant;
+
 /**
  * Enum ConfigurationDevice represents various pieces of configuration of a device.
  *
@@ -69,5 +71,34 @@ public enum ConfigurationDevice {
 	 */
 	public String getGroup() {
 		return group;
+	}
+
+	/**
+	 * Resolve configuration field from a control property
+	 */
+	public static ConfigurationDevice detectControlProperty(String controlProperty) {
+		if (controlProperty == null) {
+			return null;
+		}
+		String[] parts = controlProperty.split(DataprobeConstant.HASH, 2);
+		if (parts.length < 2) {
+			return null;
+		}
+		String group = parts[0];
+		String rawName = parts[1];
+
+		int idx = rawName.indexOf(DataprobeConstant.OPEN_PARENTHESIS);
+		String normalizedName = (idx != -1) ? rawName.substring(0, idx) : rawName;
+
+		if (normalizedName.endsWith("Enabled")) {
+			normalizedName = normalizedName.substring(0, normalizedName.length() - 1);
+		}
+
+		for (ConfigurationDevice device : values()) {
+			if (device.group.equals(group) && device.name.equalsIgnoreCase(normalizedName)) {
+				return device;
+			}
+		}
+		return null;
 	}
 }
