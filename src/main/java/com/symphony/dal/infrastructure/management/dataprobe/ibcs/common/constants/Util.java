@@ -3,15 +3,16 @@
  */
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants;
 
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -32,6 +33,7 @@ public class Util {
 	private static final DateTimeFormatter FORMATTER =
 			DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss").withZone(ZONE_HCM);
 	private static final ObjectMapper MAPPER = new ObjectMapper();
+	private static final ObjectMapper objectMapper = new ObjectMapper();
 
 	/**
 	 * Add addAdvancedControlProperties if advancedControllableProperties different empty
@@ -49,18 +51,6 @@ public class Util {
 			stats.put(property.getName(), propertyValue);
 			advancedControllableProperties.add(property);
 		}
-	}
-
-	/**
-	 * Add device control to controls list, but make sure it's not duplicated.
-	 * Properties are searched by name, if there's any match - existing property is removed and replaced with the newer one
-	 *
-	 * @param controllableProperties full list of properties
-	 * @param controllableProperty property to add
-	 * */
-	public static void addOrUpdateDeviceControl(List<AdvancedControllableProperty> controllableProperties, AdvancedControllableProperty controllableProperty) {
-		controllableProperties.removeIf(acp -> Objects.equals(controllableProperty.getName(), acp.getName()));
-		controllableProperties.add(controllableProperty);
 	}
 
 	/**
@@ -82,16 +72,6 @@ public class Util {
 	 */
 	public static String getDefaultValueForNullData(String value) {
 		return StringUtils.isNotNullOrEmpty(value) && !"null".equalsIgnoreCase(value) ? uppercaseFirstCharacter(value) : DataprobeConstant.NOT_AVAILABLE;
-	}
-
-	/**
-	 * Formats a Unix epoch timestamp as a UTC date-time string ("yyyy/MM/dd HH:mm:ss").
-	 * @param epochInput epoch timestamp in seconds or milliseconds
-	 * @return formatted UTC date-time string (e.g., "2025/10/02 02:33:21")
-	 */
-	public static String formatEpochUtc(long epochInput) {
-		long epochMillis = (epochInput < 10_000_000_000L) ? epochInput * 1000L : epochInput;
-		return FORMATTER.format(Instant.ofEpochMilli(epochMillis));
 	}
 
 	/**
@@ -167,6 +147,38 @@ public class Util {
 	}
 
 	/**
+	 * Builds the JSON request body for retrieving device information.
+	 * <p>
+	 * Always includes the token, and conditionally includes either a MAC address
+	 * or a list of types (and optionally a location) based on the provided values.
+	 *
+	 * @param token     the authentication token
+	 * @param mac       the device MAC address; if provided, it takes precedence over other filters
+	 * @param tables    the set of types to request; an empty string is used if null or empty
+	 * @return the JSON string representing the request body
+	 * @throws JsonProcessingException if the JSON cannot be serialized
+	 */
+	public static String requestBodyConfigurationDevice(String token, String mac, Set<String> tables) throws JsonProcessingException {
+		ObjectNode root = MAPPER.createObjectNode();
+		root.put("token", token);
+
+		if (!isBlank(mac)) {
+			root.put("mac", mac);
+		}
+
+		ArrayNode tableArray = MAPPER.createArrayNode();
+		if (tables == null || tables.isEmpty()) {
+			root.set("tables", tableArray);
+		} else {
+			for (String t : tables) {
+				tableArray.add(t == null ? DataprobeConstant.EMPTY : t);
+				root.set("tables", tableArray);
+			}
+		}
+		return MAPPER.writeValueAsString(root);
+	}
+
+	/**
 	 * Checks whether a string is null, empty, or contains only whitespace characters.
 	 *
 	 * @param s the string to check
@@ -174,6 +186,42 @@ public class Util {
 	 */
 	private static boolean isBlank(String s) {
 		return s == null || s.trim().isEmpty();
+	}
+
+	/**
+	 * Remaps the fields of a configuration JSON object using the provided enum definition.
+	 *
+	 * @param node             the JSON node to remap (must be an object)
+	 * @param configValues     the enum values describing the configuration fields
+	 * @param fieldExtractor   function to extract the original JSON field name from an enum value
+	 * @param nameExtractor    function to extract the display name from an enum value
+	 * @param valueTransformer function to transform the raw field value before storing
+	 * @param <E>              the enum type used for configuration mapping
+	 */
+	public static  <E> void mappingConfig(JsonNode node, E[] configValues, Function<E, String> fieldExtractor, Function<E, String> nameExtractor,
+			BiFunction<E, String, String> valueTransformer) {
+		if (node == null || node.isNull() || !node.isObject()) {
+			return;
+		}
+
+		ObjectNode objectNode = (ObjectNode) node;
+		ObjectNode mapped = objectMapper.createObjectNode();
+
+		for (E entry : configValues) {
+			String jsonField   = fieldExtractor.apply(entry);
+			String displayName = nameExtractor.apply(entry);
+
+			JsonNode valueNode = objectNode.get(jsonField);
+			String rawValue = (valueNode == null || valueNode.isNull())
+					? DataprobeConstant.EMPTY
+					: valueNode.asText(DataprobeConstant.EMPTY);
+
+			String finalValue = valueTransformer.apply(entry, rawValue);
+			mapped.put(displayName, finalValue);
+		}
+
+		objectNode.removeAll();
+		objectNode.setAll(mapped);
 	}
 
 	/**

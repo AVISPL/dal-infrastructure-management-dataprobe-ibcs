@@ -4,11 +4,13 @@
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs;
 
 import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createButton;
+import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createDropdown;
 import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createSwitch;
 import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createText;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -23,13 +25,20 @@ import java.util.stream.Collectors;
 
 import org.springframework.util.CollectionUtils;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.DeviceConfig;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.G2ConfigurationRequest;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeCommand;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeConstant;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.LoginInfo;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants.Util;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.AggregatedInformation;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationAdvancedNetwork;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationAutoPing;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationDevice;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationNetwork;
 import javax.security.auth.login.FailedLoginException;
 
 import com.avispl.symphony.api.dal.control.Controller;
@@ -293,6 +302,29 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	@Override
 	public void controlProperty(ControllableProperty cp) {
+		reentrantLock.lock();
+		try {
+			if (localExtendedStatistics == null) {
+				return;
+			}
+			String controlProperty = cp.getProperty();
+			String deviceId = cp.getDeviceId();
+			String value = String.valueOf(cp.getValue());
+
+			boolean exists = aggregatedDeviceList.stream().anyMatch(d -> d.getDeviceId().equals(deviceId));
+			if (!exists) throw new IllegalStateException(String.format("Unable to control property: %s as the device does not exist.", controlProperty));
+
+			if (controlProperty.startsWith("Configuration" + DataprobeConstant.HASH)) {
+				G2ConfigurationRequest g2ConfigurationRequest =	handleDeviceConfigurationControl(controlProperty, deviceId, value);
+				sendConfigurationToDevice(g2ConfigurationRequest);
+			}
+		} catch (JsonProcessingException e) {
+			String message = String.format("Failed to control property '%s' on device '%s' with value '%s' due to JSON processing error.",
+					cp.getProperty(), cp.getDeviceId(), cp.getValue());
+			throw new RuntimeException(message, e);
+		} finally {
+			reentrantLock.unlock();
+		}
 	}
 
 	/**
@@ -539,6 +571,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 		mapMonitorProperty(cachedData, stats, deviceMAC);
 		mapOutletGroup(cachedData, stats, controls);
+		populateListConfigurationOfDevice(stats, deviceMAC, controls);
 
 		aggregatedDevice.setProperties(stats);
 		aggregatedDevice.setTimestamp(System.currentTimeMillis());
@@ -601,6 +634,169 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				stats.put(k, Util.getDefaultValueForNullData(v));
 			}
 		});
+	}
+
+	/**
+	 * Retrieves and maps the configuration of a device into statistics and controllable properties.
+	 * Calls the configuration API for the given device, flattens the returned sections
+	 * (device, network, advancedNetwork, autoping), and updates the provided stats and controls.
+	 *
+	 * @param stats     the statistics map to populate with configuration values
+	 * @param deviceMAC the MAC address of the device whose configuration is retrieved
+	 * @param controls  the list of controllable properties to populate for configuration control
+	 * @throws ResourceNotReachableException if the configuration cannot be retrieved or processed
+	 */
+	private void populateListConfigurationOfDevice(Map<String, String> stats, String deviceMAC, List<AdvancedControllableProperty> controls) {
+		try {
+			String jsonPayload = Util.requestBodyConfigurationDevice(loginInfo.getToken(), deviceMAC, null);
+			String result = this.doPost(DataprobeCommand.CONFIG_GET, jsonPayload);
+			JsonNode root = objectMapper.readTree(result);
+
+			if (!DataprobeConstant.TRUE.equalsIgnoreCase(root.path("success").asText())) {
+				return;
+			}
+
+			Map<String, String> mappingValue = new HashMap<>();
+
+			populateNetworkConfig(root, mappingValue);
+			populateAdvancedNetworkConfig(root, mappingValue);
+			populateAutoPingConfig(root, mappingValue);
+			populateDeviceConfig(root, mappingValue);
+
+			mappingConfigurationProperty(mappingValue, stats, controls);
+		} catch (Exception e) {
+			throw new ResourceNotReachableException("Unable to retrieve device configuration", e);
+		}
+	}
+
+	/**
+	 * Populates the mapping with flattened device configuration values
+	 * from the {@code device} node of the given root.
+	 *
+	 * @param root         the root JSON node containing the device section
+	 * @param mappingValue the map to populate with flattened device configuration
+	 */
+	private void populateDeviceConfig(JsonNode root, Map<String, String> mappingValue) {
+		JsonNode deviceNode = root.path("device");
+		flattenConfigObject(deviceNode, "Configuration", mappingValue);
+	}
+
+	/**
+	 * Populates the mapping with flattened network configuration values.
+	 * The {@code network} node is first remapped using {@link ConfigurationNetwork}
+	 * and then flattened into the provided map.
+	 *
+	 * @param root         the root JSON node containing the network section
+	 * @param mappingValue the map to populate with flattened network configuration
+	 */
+	private void populateNetworkConfig(JsonNode root, Map<String, String> mappingValue) {
+		JsonNode networkNode = root.path("network");
+		Util.mappingConfig(
+				networkNode,
+				ConfigurationNetwork.values(),
+				ConfigurationNetwork::getField,
+				ConfigurationNetwork::getName,
+				(e, value) -> value
+		);
+		flattenConfigObject(networkNode, "Network", mappingValue);
+	}
+
+	/**
+	 * Populates the mapping with flattened advanced network configuration values.
+	 *
+	 * @param root         the root JSON node containing the advanced network section
+	 * @param mappingValue the map to populate with flattened advanced network configuration
+	 */
+	private void populateAdvancedNetworkConfig(JsonNode root, Map<String, String> mappingValue) {
+		JsonNode advNetworkNode = root.path("advancedNetwork");
+		Util.mappingConfig(
+				advNetworkNode,
+				ConfigurationAdvancedNetwork.values(),
+				ConfigurationAdvancedNetwork::getField,
+				ConfigurationAdvancedNetwork::getName,
+				(advancedNetwork, value) -> {
+					switch (advancedNetwork) {
+						case DST_ENABLED:
+						case ENABLE_TIME_SERVER:
+						case CLOUD_ENABLED:
+							return DataprobeConstant.ZERO.equals(value)
+									? DataprobeConstant.FALSE
+									: DataprobeConstant.TRUE;
+						default:
+							return value;
+					}
+				}
+		);
+		flattenConfigObject(advNetworkNode, "AdvancedNetwork", mappingValue);
+	}
+
+	/**
+	 * Populates the mapping with flattened AutoPing configuration values.
+	 * The {@code autoping} node is first remapped using {@link ConfigurationAutoPing}
+	 * and then flattened into the provided map.
+	 *
+	 * @param root         the root JSON node containing the AutoPing section
+	 * @param mappingValue the map to populate with flattened AutoPing configuration
+	 */
+	private void populateAutoPingConfig(JsonNode root, Map<String, String> mappingValue) {
+		JsonNode autopingNode = root.path("autoping");
+		Util.mappingConfig(
+				autopingNode,
+				ConfigurationAutoPing.values(),
+				ConfigurationAutoPing::getField,
+				ConfigurationAutoPing::getName,
+				(e, value) -> value
+		);
+		flattenConfigObject(autopingNode, "AutoPing", mappingValue);
+	}
+
+	/**
+	 * Maps device configuration values into statistics and advanced controllable properties.
+	 *
+	 * @param mappingValue the flat mapping of configuration keys to values
+	 * @param stats        the statistics map to update with configuration values
+	 * @param controls     the list to populate with advanced controllable properties
+	 */
+	private void mappingConfigurationProperty(Map<String, String> mappingValue, Map<String, String> stats, List<AdvancedControllableProperty> controls) {
+		for (ConfigurationDevice device : ConfigurationDevice.values()){
+			String name = device.getGroup() + DataprobeConstant.HASH + device.getName();
+			String value = mappingValue.get(name);
+			switch (device){
+				case DISABLE_OFF:
+					Util.addAdvancedControlProperties(controls, stats, createSwitch(name, Integer.parseInt(value)), value );
+					break;
+				case UPGRADE_ENABLE:
+					Util.addAdvancedControlProperties(controls, stats, createSwitch(device.getGroup() + DataprobeConstant.HASH + "UpgradeEnabled", Integer.parseInt(value)), value );
+					stats.remove(name);
+					mappingValue.remove(name);
+					break;
+				case INITIAL_STATE:
+					List<String> listInitial = Arrays.asList("On", "Off", "Last");
+					Util.addAdvancedControlProperties(controls, stats, createDropdown(name, listInitial, Util.uppercaseFirstCharacter(value)), Util.uppercaseFirstCharacter(value));
+					break;
+				case AUTO_LOGOUT:
+					List<String> timeToLogout = new ArrayList<>();
+					for (int i = 0; i <= 99; i++){
+						timeToLogout.add(String.valueOf(i));
+					}
+					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(minutes)", timeToLogout, value), value);
+					stats.remove(name);
+					mappingValue.remove(name);
+					break;
+				case CYCLE_TIME:
+					List<String> cycleTime = new ArrayList<>();
+					for (int i = 1; i <= 999; i++){
+						cycleTime.add(String.valueOf(i));
+					}
+					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", cycleTime, value), value);
+					stats.remove(name);
+					mappingValue.remove(name);
+					break;
+				default:
+					stats.putAll(mappingValue);
+					break;
+			}
+		}
 	}
 
 	/**
@@ -764,6 +960,25 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
+	 * Flattens the given JSON object node into a map of configuration values.
+	 *
+	 * @param node         the JSON object node to flatten
+	 * @param group        the group prefix used for generated keys
+	 * @param mappingValue the map to populate with flattened key/value pairs
+	 */
+	private void flattenConfigObject(JsonNode node, String group, Map<String, String> mappingValue) {
+		if (node == null || node.isMissingNode() || !node.isObject()) {
+			return;
+		}
+		node.fields().forEachRemaining(entry -> {
+			String key = entry.getKey();
+			JsonNode value = entry.getValue();
+			String mapKey = group + DataprobeConstant.HASH + Util.uppercaseFirstCharacter(key);
+			mappingValue.put(mapKey, value.isNull() ? DataprobeConstant.EMPTY : value.asText(DataprobeConstant.EMPTY));
+		});
+	}
+
+	/**
 	 * Puts the provided mapping values into the cached monitoring data for the specified device ID.
 	 *
 	 * @param deviceMAC The MAC address of the device.
@@ -777,6 +992,68 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			}
 			map.putAll(mappingValue);
 			cachedMonitoringDevice.put(deviceMAC, map);
+		}
+	}
+
+	/**
+	 * Builds a {@link G2ConfigurationRequest} for a single device configuration change
+	 * based on the given control property and value.
+	 *
+	 * @param controlProperty the configuration control property (e.g. "Configuration#AutoLogout(s)")
+	 * @param deviceMAC       the MAC address of the target device
+	 * @param value           the new value to apply for the configuration field
+	 * @throws IllegalArgumentException     if the control property cannot be mapped to a configuration field
+	 */
+	private G2ConfigurationRequest handleDeviceConfigurationControl(String controlProperty, String deviceMAC, String value) throws JsonProcessingException {
+		ConfigurationDevice configField = ConfigurationDevice.detectControlProperty(controlProperty);
+		if (configField == null) {
+			throw new IllegalArgumentException("Unsupported device control property: " + controlProperty);
+		}
+		DeviceConfig deviceConfig = new DeviceConfig();
+		switch (configField) {
+			case LOCATION:
+				deviceConfig.setLocation(value);
+				break;
+			case CYCLE_TIME:
+				deviceConfig.setCycleTime(value);
+				break;
+			case DISABLE_OFF:
+				deviceConfig.setDisableOff(value);
+				break;
+			case INITIAL_STATE:
+				deviceConfig.setInitialState(value);
+				break;
+			case UPGRADE_ENABLE:
+				deviceConfig.setUpgradeEnable(value);
+				break;
+			case AUTO_LOGOUT:
+				deviceConfig.setAutoLogout(value);
+				break;
+			default:
+				throw new IllegalArgumentException("Unhandled configuration field: " + configField);
+		}
+		return new G2ConfigurationRequest(loginInfo.getToken(), deviceMAC, deviceConfig);
+	}
+
+	/**
+	 * Sends a configuration update request to the device and validates the response.
+	 * If the API reports a failure or an error occurs during the call,
+	 * a {@link ResourceNotReachableException} is thrown.
+	 *
+	 * @param request the configuration request to be sent to the device
+	 * @throws ResourceNotReachableException if the device configuration cannot be set
+	 */
+	private void sendConfigurationToDevice(G2ConfigurationRequest request) {
+		try {
+			String response = this.doPost(DataprobeCommand.CONFIG_SET, objectMapper.writeValueAsString(request));
+			JsonNode deviceResponse = objectMapper.readTree(response);
+
+			if (!deviceResponse.path("success").asText().equalsIgnoreCase(DataprobeConstant.TRUE)) {
+				String message = deviceResponse.path("message").toString();
+				throw new ResourceNotReachableException("Failed to set configuration: " + message);
+			}
+		} catch (Exception e) {
+			throw new ResourceNotReachableException("Unable to set device configuration", e);
 		}
 	}
 }
