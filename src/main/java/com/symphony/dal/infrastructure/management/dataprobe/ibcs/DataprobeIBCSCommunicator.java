@@ -319,7 +319,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				sendConfigurationToDevice(g2ConfigurationRequest);
 			}
 		} catch (JsonProcessingException e) {
-			throw new RuntimeException(e);
+			String message = String.format("Failed to control property '%s' on device '%s' with value '%s' due to JSON processing error.",
+					cp.getProperty(), cp.getDeviceId(), cp.getValue());
+			throw new RuntimeException(message, e);
 		} finally {
 			reentrantLock.unlock();
 		}
@@ -663,7 +665,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 			mappingConfigurationProperty(mappingValue, stats, controls);
 		} catch (Exception e) {
-			throw new ResourceNotReachableException("Can not retrieve configuration of device", e);
+			throw new ResourceNotReachableException("Unable to retrieve device configuration", e);
 		}
 	}
 
@@ -1046,12 +1048,12 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			String response = this.doPost(DataprobeCommand.CONFIG_SET, objectMapper.writeValueAsString(request));
 			JsonNode deviceResponse = objectMapper.readTree(response);
 
-			if (!deviceResponse.path("success").asText("").equalsIgnoreCase(DataprobeConstant.TRUE)) {
+			if (!deviceResponse.path("success").asText().equalsIgnoreCase(DataprobeConstant.TRUE)) {
 				String message = deviceResponse.path("message").toString();
 				throw new ResourceNotReachableException("Failed to set configuration: " + message);
 			}
 		} catch (Exception e) {
-			throw new ResourceNotReachableException("Can not set device configuration", e);
+			throw new ResourceNotReachableException("Unable to set device configuration", e);
 		}
 	}
 }
