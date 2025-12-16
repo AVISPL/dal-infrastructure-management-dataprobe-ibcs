@@ -15,5 +15,7 @@ public class DataprobeCommand {
 	public final static String RETRIEVE_INFO = "retrieve";
 	public final static String RETRIEVE_MANAGE_LINK = "manage_link";
 	public final static String CONTROL = "control";
+	public final static String CONFIG_GET = "configuration/iBoot/get";
+	public final static String CONFIG_SET = "configuration/iBoot/set";
 
 }
