@@ -9,6 +9,8 @@ import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createSwi
 import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createText;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,8 +30,10 @@ import org.springframework.util.CollectionUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.ControlObject;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.DeviceConfig;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.G2ConfigurationRequest;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.Serialisers.RebootRequest;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeCommand;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.DataprobeConstant;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.LoginInfo;
@@ -190,7 +194,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 	class DataprobeIBCSCloudDataLoader implements Runnable {
 		private volatile boolean inProgress;
-		private volatile boolean dataFetchCompleted = false;
 
 		public DataprobeIBCSCloudDataLoader() {
 			inProgress = true;
@@ -211,6 +214,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					if (!inProgress) {
 						break loop;
 					}
+					if (!inProgress) {
+						break loop;
+					}
 
 					updateAggregatorStatus();
 					if (devicePaused) {
@@ -218,12 +224,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					}
 					if (logger.isDebugEnabled()) {
 						logger.debug("Fetching other than aggregated device list");
-					}
-
-					long currentTimestamp = System.currentTimeMillis();
-					if (!dataFetchCompleted && nextDevicesCollectionIterationTimestamp <= currentTimestamp) {
-						populateListDevice();
-						dataFetchCompleted = true;
 					}
 
 					while (nextDevicesCollectionIterationTimestamp > System.currentTimeMillis()) {
@@ -234,8 +234,13 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						}
 					}
 
-					if (!inProgress) {
-						break loop;
+					try {
+						if (logger.isDebugEnabled()) {
+							logger.debug("Fetching devices list");
+						}
+						populateListDevice();
+					} catch (Exception e) {
+						logger.error("Error occurred during device list retrieval: " + e.getMessage() + " with cause: " + e.getCause().getMessage(), e);
 					}
 					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 30000;
 					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
@@ -301,7 +306,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * {@inheritDoc}
 	 */
 	@Override
-	public void controlProperty(ControllableProperty cp) {
+	public void controlProperty(ControllableProperty cp) throws Exception {
 		reentrantLock.lock();
 		try {
 			if (localExtendedStatistics == null) {
@@ -311,12 +316,40 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			String deviceId = cp.getDeviceId();
 			String value = String.valueOf(cp.getValue());
 
-			boolean exists = aggregatedDeviceList.stream().anyMatch(d -> d.getDeviceId().equals(deviceId));
-			if (!exists) throw new IllegalStateException(String.format("Unable to control property: %s as the device does not exist.", controlProperty));
+			String[] parts = controlProperty.split(DataprobeConstant.HASH);
+			String key = controlProperty.contains(DataprobeConstant.HASH) ? parts[0] : controlProperty;
 
-			if (controlProperty.startsWith("Configuration" + DataprobeConstant.HASH)) {
-				G2ConfigurationRequest g2ConfigurationRequest =	handleDeviceConfigurationControl(controlProperty, deviceId, value);
-				sendConfigurationToDevice(g2ConfigurationRequest);
+			AggregatedDevice device = aggregatedDeviceList.stream()
+					.filter(d -> deviceId.equals(d.getDeviceId()))
+					.findFirst()
+					.orElse(null);
+
+			if(device == null){
+				throw new IllegalStateException(String.format("Unable to control property: %s as the device does not exist.", controlProperty));
+			}
+
+			switch (key){
+				case DataprobeConstant.CONFIGURATION:
+					G2ConfigurationRequest g2ConfigurationRequest =	handleDeviceConfigurationControl(controlProperty, deviceId, value);
+					sendConfigurationToDevice(g2ConfigurationRequest);
+					break;
+				case DataprobeConstant.REBOOT:
+					RebootRequest rebootRequest = new RebootRequest(loginInfo.getToken(), deviceId, DataprobeConstant.ONE);
+					sendControlCommand(rebootRequest, DataprobeConstant.ERROR_CONTEXT_REBOOT);
+					break;
+				default:
+					ControlObject controlObject = handleOutletAndGroupControl(controlProperty, deviceId, value);
+					sendControlCommand(controlObject, DataprobeConstant.ERROR_CONTEXT_CONTROL);
+					updateCachedMonitoringAfterControl(deviceId, controlProperty, value);
+					if (isG2Device(device) && controlProperty.endsWith(DataprobeConstant.HASH + DataprobeConstant.CYCLE)) {
+						try {
+							TimeUnit.SECONDS.sleep(10);
+						} catch (InterruptedException ie) {
+							Thread.currentThread().interrupt();
+							logger.warn("Cycle wait interrupted for device " + deviceId + ie);
+						}
+					}
+					break;
 			}
 		} catch (JsonProcessingException e) {
 			String message = String.format("Failed to control property '%s' on device '%s' with value '%s' due to JSON processing error.",
@@ -570,6 +603,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		List<AdvancedControllableProperty> controls = new ArrayList<>();
 
 		mapMonitorProperty(cachedData, stats, deviceMAC);
+		mapControllableProperty(stats, controls, cachedData);
 		mapOutletGroup(cachedData, stats, controls);
 		populateListConfigurationOfDevice(stats, deviceMAC, controls);
 
@@ -597,44 +631,61 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		if (cachedData == null || cachedData.isEmpty()) {
 			return;
 		}
-		for (Map.Entry<String, String> entry : cachedData.entrySet()) {
-			String key = entry.getKey();
-
+		cachedData.forEach((key, rawStatus) -> {
 			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
-				continue;
+				return;
 			}
 
-			String groupName = key.substring(0, key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
-			String statusValue = entry.getValue().toLowerCase();
+			String groupName = key.substring(0,
+					key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
 
-			String nameKey = groupName + "#Name";
+			String statusValue = Util.getDefaultValueForNullData(rawStatus).toLowerCase();
+
+			String nameKey  = groupName + DataprobeConstant.HASH + "Name";
 			String realName = cachedData.get(nameKey);
 			if (realName == null || realName.isEmpty()) {
 				realName = groupName;
 			}
 
-			stats.put(groupName + "#Name", realName);
-			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.getDefaultValueForNullData(statusValue));
+			stats.put(nameKey, realName);
+			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, statusValue);
 
-			if ("Inactive".equalsIgnoreCase(Util.getDefaultValueForNullData(statusValue))) {
-				continue;
+			if (isAutoPingKey(key)) {
+				return;
 			}
 
-			boolean isOn = DataprobeConstant.ON.equalsIgnoreCase(Util.getDefaultValueForNullData(statusValue));
+			if ("inactive".equalsIgnoreCase(statusValue) || DataprobeConstant.CYCLE.equalsIgnoreCase(statusValue)) {
+				return;
+			}
 
-			String controlKey = groupName + "#Control";
-			String cycleKey   = groupName + "#Cycle";
+			boolean isOn = DataprobeConstant.ON.equalsIgnoreCase(statusValue);
+			String controlKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL;
+			String cycleKey   = groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE;
 
-			Util.addAdvancedControlProperties(controls, stats, createSwitch(controlKey, isOn ? 1 : 0), isOn ? "1" : "0" );
-			Util.addAdvancedControlProperties(controls, stats, createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE );
-		}
+			Util.addAdvancedControlProperties(controls, stats, createSwitch(controlKey, isOn ? 1 : 0), isOn ? DataprobeConstant.ONE : DataprobeConstant.ZERO);
+			Util.addAdvancedControlProperties(controls, stats, createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE);
+		});
 
+		// Map TriggerInfo_*
 		cachedData.forEach((k, v) -> {
 			if (k.startsWith(DataprobeConstant.TRIGGER_INFO_GROUP)) {
 				stats.put(k, Util.getDefaultValueForNullData(v));
 			}
 		});
 	}
+
+	/**
+	 * Determines whether the given mapping key belongs to an AutoPing group.
+	 * "AutoPing_1", "AutoPing_2", etc.
+	 *
+	 * @param key the flattened mapping key to inspect (e.g. "AutoPing_1#Status")
+	 * @return {@code true} if the key prefix contains the AutoPing marker, {@code false} otherwise
+	 */
+	private boolean isAutoPingKey(String key) {
+		String[] parts = key.split(DataprobeConstant.UNDER_SCORE, 2);
+		return parts.length > 0 && parts[0].contains(DataprobeConstant.AUTOPING);
+	}
+
 
 	/**
 	 * Retrieves and maps the configuration of a device into statistics and controllable properties.
@@ -678,7 +729,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void populateDeviceConfig(JsonNode root, Map<String, String> mappingValue) {
 		JsonNode deviceNode = root.path("device");
-		flattenConfigObject(deviceNode, "Configuration", mappingValue);
+		flattenConfigObject(deviceNode, DataprobeConstant.CONFIGURATION, mappingValue);
 	}
 
 	/**
@@ -747,7 +798,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				ConfigurationAutoPing::getName,
 				(e, value) -> value
 		);
-		flattenConfigObject(autopingNode, "AutoPing", mappingValue);
+		flattenConfigObject(autopingNode, DataprobeConstant.AUTOPING, mappingValue);
 	}
 
 	/**
@@ -812,6 +863,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		}
 			for (AggregatedInformation item : AggregatedInformation.values()) {
 				String name = item.getGroup() + item.getName();
+				String value = cachedValue.get(name);
 				switch (item) {
 					case NAME:
 					case MODEL:
@@ -820,12 +872,32 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					case MANAGE_LINK:
 						stats.put(name, retrieveManageLink(deviceMAC));
 						break;
+					case LAST_CONTACT:
+						DateTimeFormatter inputFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+						LocalDateTime dateTime = LocalDateTime.parse(value, inputFmt);
+						String iso8601 = dateTime.toString();
+						stats.put(name, iso8601);
+						break;
 					default:
-						String value = cachedValue.get(name);
 						stats.put(name, Util.getDefaultValueForNullData(value));
 						break;
 				}
 			}
+	}
+
+	/**
+	 * Maps controllable properties to the provided stats and advancedControllableProperties lists.
+	 *
+	 * @param stats A map containing the statistics to be populated with controllable properties.
+	 * @param control A list of AdvancedControllableProperty objects to be populated with controllable properties.
+	 */
+	private void mapControllableProperty(Map<String, String> stats, List<AdvancedControllableProperty> control, Map<String, String> cachedData) {
+		String model = cachedData.get(AggregatedInformation.MODEL.getName());
+		if(model != null && model.toUpperCase().contains("G2")){
+			Util.addAdvancedControlProperties(control, stats, createButton(DataprobeConstant.REBOOT, DataprobeConstant.REBOOT, "Rebooting", 0), DataprobeConstant.NONE);
+		} else {
+			stats.put(DataprobeConstant.REBOOT, DataprobeConstant.NOT_AVAILABLE);
+		}
 	}
 
 	/**
@@ -900,35 +972,81 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			for (int i = 0; i < statusNode.size(); i++) {
 				JsonNode item = statusNode.get(i);
 				int outletIndex = i + 1;
+
 				item.fields().forEachRemaining(entry -> {
 					String outletName = entry.getKey();
-					if (outletName == null || outletName.isEmpty()) {
+					if (Util.isBlank(outletName)) {
 						return;
 					}
 					String groupOutletName = DataprobeConstant.OUTLET_GROUP + outletIndex;
-					String state = entry.getValue().asText(DataprobeConstant.EMPTY);
-					mappingValue.put(groupOutletName + "#Status", state);
-					mappingValue.put(groupOutletName + "#Name", outletName);
+					putStatusAndName(mappingValue, groupOutletName, outletName, entry.getValue());
 				});
 			}
 		} else if (statusNode.isObject()) {
 			// iBoot-G2: object
-			final int[] index = {1};
+			final int[] outletIndex = {1};
+
 			statusNode.fields().forEachRemaining(entry -> {
-				String outletName = entry.getKey();
-				if (outletName == null || outletName.isEmpty()) {
+				String name = entry.getKey();
+				if (Util.isBlank(name)) {
 					return;
 				}
-				String groupOutletName = DataprobeConstant.OUTLET_GROUP + index[0];
-				String state = entry.getValue().asText(DataprobeConstant.EMPTY);
-				mappingValue.put(groupOutletName + "#Status", state);
-				mappingValue.put(groupOutletName + "#Name", outletName);
-				index[0]++;
+				JsonNode valueNode = entry.getValue();
+
+				if (isAutoPingName(name)) {
+					// name: "AP-1" -> group: "AutoPing_1"
+					String apId = extractAutoPingId(name); // "AP-1" -> "1"
+					String groupOutletName = DataprobeConstant.AUTOPING + DataprobeConstant.UNDER_SCORE + apId;
+					putStatusAndName(mappingValue, groupOutletName, name, valueNode);
+				} else {
+					String groupOutletName = DataprobeConstant.OUTLET_GROUP + outletIndex[0];
+					putStatusAndName(mappingValue, groupOutletName, name, valueNode);
+					outletIndex[0]++;
+				}
 			});
 		} else {
 			mappingValue.put("RawStatus", statusNode.toString());
 		}
 	}
+
+	/**
+	 * Puts the outlet or AutoPing status and display name into the flattened mapping.
+	 *
+	 * @param mappingValue the target map to update
+	 * @param groupName    the logical group name (e.g. "Outlet_1", "AutoPing_1")
+	 * @param displayName  the human-readable name to store (e.g. "Outlet-1", "AP-1")
+	 * @param valueNode    the JSON node containing the status value
+	 */
+	private void putStatusAndName(Map<String, String> mappingValue, String groupName, String displayName, JsonNode valueNode) {
+		String state = valueNode == null || valueNode.isNull() ? DataprobeConstant.EMPTY : valueNode.asText(DataprobeConstant.EMPTY);
+		mappingValue.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, state);
+		mappingValue.put(groupName + DataprobeConstant.HASH + "Name", displayName);
+	}
+
+	/**
+	 * Checks whether the given status key represents an AutoPing entry.
+	 * Expected format is like "AP-1", "AP-2", etc.
+	 *
+	 * @param name the raw status key from the device response
+	 * @return {@code true} if the name starts with an "AP" prefix, {@code false} otherwise
+	 */
+	private boolean isAutoPingName(String name) {
+		String[] parts = name.split("-", 2);
+		return parts.length > 0 && parts[0].contains("AP");
+	}
+
+	/**
+	 * Extracts the AutoPing identifier from a status key.
+	 * For example, "AP-1" becomes "1".
+	 *
+	 * @param name the raw AutoPing key (e.g. "AP-1")
+	 * @return the extracted identifier part, or the original name if it cannot be parsed
+	 */
+	private String extractAutoPingId(String name) {
+		String[] parts = name.split("-", 2);
+		return parts.length == 2 ? parts[1] : name;
+	}
+
 
 	/**
 	 * Parses trigger information from the given JSON node and flattens it
@@ -996,6 +1114,65 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
+	 * Updates the cached monitoring data after a control action
+	 * so that subsequent statistics retrievals reflect the new state.
+	 *
+	 * @param deviceId        the target device MAC/ID
+	 * @param controlProperty the property that was controlled (e.g. "Outlet_1#Control", "Outlet_1#Cycle")
+	 * @param value           the value that was applied (e.g. "1", "0")
+	 */
+	private void updateCachedMonitoringAfterControl(String deviceId, String controlProperty, String value) {
+		synchronized (cachedMonitoringDevice) {
+			Map<String, String> cachedData = cachedMonitoringDevice.get(deviceId);
+			if (cachedData == null) {
+				return;
+			}
+			cachedData.put(controlProperty, value);
+			if (controlProperty.endsWith(DataprobeConstant.HASH + DataprobeConstant.CONTROL)) {
+
+				String groupName = controlProperty.substring(0, controlProperty.indexOf(DataprobeConstant.HASH + DataprobeConstant.CONTROL));
+				String status = DataprobeConstant.ONE.equals(value) ? DataprobeConstant.ON : DataprobeConstant.OFF;
+
+				cachedData.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, status);
+
+			} else if (cachedData.get("Model").contains("G2") && controlProperty.contains(DataprobeConstant.CYCLE)){
+				String groupName = controlProperty.substring(0, controlProperty.indexOf(DataprobeConstant.HASH + DataprobeConstant.CYCLE));
+
+				cachedData.remove(groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL);
+				cachedData.remove(groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE);
+				cachedData.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, DataprobeConstant.CYCLE);
+			}
+		}
+	}
+
+	/**
+	 * Handles the group control operation based on the given control property and value.
+	 *
+	 * @param controlProperty the control property string, containing the group information and action
+	 * @param value the control value indicating the desired state (e.g., "1" for on, "0" for off)
+	 * @return a {@link ControlObject} representing the group control operation to be executed
+	 */
+	private ControlObject handleOutletAndGroupControl(String controlProperty, String deviceMAC, String value) {
+		int outletIndex = extractOutletIndex(controlProperty);
+		String command = DataprobeConstant.ONE.equals(value) ? DataprobeConstant.ON.toLowerCase() : DataprobeConstant.OFF.toLowerCase();
+		if (controlProperty.contains(DataprobeConstant.CYCLE)) {
+			command = DataprobeConstant.CYCLE.toLowerCase();
+		}
+		return new ControlObject(this.loginInfo.getToken(), deviceMAC, new String[] { String.valueOf(outletIndex - 1) }, command);
+	}
+
+	private int extractOutletIndex(String controlProperty) {
+		int startIndex = controlProperty.indexOf(DataprobeConstant.UNDER_SCORE);
+		int endIndex = controlProperty.indexOf(DataprobeConstant.HASH);
+		if (startIndex != -1 && endIndex != -1 && endIndex > startIndex + 1) {
+			String numStr = controlProperty.substring(startIndex + 1, endIndex);
+			return Integer.parseInt(numStr.trim());
+		}
+		throw new IllegalArgumentException(
+				"Cannot extract outlet index from control property: " + controlProperty);
+	}
+
+	/**
 	 * Builds a {@link G2ConfigurationRequest} for a single device configuration change
 	 * based on the given control property and value.
 	 *
@@ -1054,6 +1231,36 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			}
 		} catch (Exception e) {
 			throw new ResourceNotReachableException("Unable to set device configuration", e);
+		}
+	}
+
+	/**
+	 * Checks whether the given device is an iBoot-G2 model based on its model name.
+	 *
+	 * @param device the aggregated device to inspect
+	 */
+	private boolean isG2Device(AggregatedDevice device) {
+		String model = device.getDeviceModel();
+		return model != null && model.toUpperCase().contains("G2");
+	}
+
+	/**
+	 * Sends a control command payload to the CONTROL endpoint and validates the response.
+	 *
+	 * @param payload      the request body object (ControlObject, RebootRequest, ...)
+	 * @param errorContext short description used in error messages (e.g. "control device", "reboot device")
+	 */
+	private void sendControlCommand(Object payload, String errorContext) {
+		try {
+			String response = this.doPost(DataprobeCommand.CONTROL, objectMapper.writeValueAsString(payload));
+			JsonNode deviceResponse = objectMapper.readTree(response);
+
+			if (!deviceResponse.at(DataprobeConstant.RESPONSE_SUCCESS).asBoolean()) {
+				String message = deviceResponse.at(DataprobeConstant.RESPONSE_MESSAGE).asText();
+				throw new ResourceNotReachableException("Unable to " + errorContext + ": " + message);
+			}
+		} catch (Exception e) {
+			throw new ResourceNotReachableException("Unable to " + errorContext, e);
 		}
 	}
 }

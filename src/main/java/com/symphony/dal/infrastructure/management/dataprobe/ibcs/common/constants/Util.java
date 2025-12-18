@@ -184,7 +184,7 @@ public class Util {
 	 * @param s the string to check
 	 * @return {@code true} if the string is null, empty, or whitespace-only; {@code false} otherwise
 	 */
-	private static boolean isBlank(String s) {
+	public static boolean isBlank(String s) {
 		return s == null || s.trim().isEmpty();
 	}
 
