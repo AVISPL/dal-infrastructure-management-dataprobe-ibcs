@@ -240,7 +240,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						}
 						populateListDevice();
 					} catch (Exception e) {
-						logger.error("Error occurred during device list retrieval: " + e.getMessage() + " with cause: " + e.getCause().getMessage(), e);
+						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
 					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 30000;
 					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
