@@ -14,6 +14,37 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public class Serialisers {
 
     /**
+     * A class representing a reboot object, used for sending control commands to a device.
+     * This includes properties for the device token, MACAddress, and reboot.
+     */
+    static class RebootRequest {
+        private String token;
+        private String mac;
+        private String reboot;
+
+        /**
+         * Constructs a new {@link RebootRequest}.
+         *
+         * @param token    the authentication token for the device
+         * @param mac      the type of control (e.g., "group", "outlet", "sequence")
+         * @param reboot   1=reboot
+         */
+        RebootRequest(String token, String mac, String reboot) {
+            this.token = token;
+            this.mac = mac;
+            this.reboot = reboot;
+        }
+
+        public String getToken() { return token; }
+        public String getMac() { return mac; }
+        public String getReboot() { return reboot; }
+
+        public void setToken(String token) { this.token = token; }
+        public void setMac(String mac) { this.mac = mac; }
+        public void setReboot(String reboot) { this.reboot = reboot; }
+    }
+
+    /**
      * A class representing a control object, used for sending control commands to a device.
      * This includes properties for the device token, MACAddress, outletIndex, and controlType.
      */
