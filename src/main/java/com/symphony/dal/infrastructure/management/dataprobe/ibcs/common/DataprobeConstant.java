@@ -22,12 +22,21 @@ public class DataprobeConstant {
 	public static final String TRUE = "true";
 	public static final String FALSE = "false";
 	public static final String ON = "On";
+	public static final String OFF = "Off";
 	public static final String SUCCESS = "success";
 	public static final String TRIGGER_INFO_GROUP = "TriggerInfo_";
 	public static final String OUTLET_GROUP = "Outlet_";
+	public static final String CONTROL = "Control";
+	public static final String AUTOPING = "AutoPing";
+	public static final String CONFIGURATION = "Configuration";
+	public static final String ERROR_CONTEXT_CONTROL = "control device";
+	public static final String ERROR_CONTEXT_REBOOT = "reboot device";
 	public static final String STATUS = "Status";
+	public static final String REBOOT = "Reboot";
 	public static final String HASH = "#";
 	public static final String ZERO = "0";
+	public static final String ONE = "1";
+	public static final String UNDER_SCORE = "_";
 	public static final String OPEN_PARENTHESIS = "(";
 	public static final String CLOSE_PARENTHESIS = ")";
 
