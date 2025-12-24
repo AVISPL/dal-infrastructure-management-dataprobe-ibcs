@@ -16,9 +16,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -290,6 +292,56 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		this.configManagement = configManagement;
 	}
 
+	/**
+	 * Stores the unique device types used for filtering results.
+	 */
+	private final Set<String> deviceTypeFilter = new HashSet<>();
+
+	/**
+	 * Retrieves the device type filters as a comma-separated string.
+	 * * @return A string containing all active device type filters joined by commas.
+	 */
+	public String getDeviceTypeFilter() {
+		return String.join(",", this.deviceTypeFilter);
+	}
+
+	/**
+	 * Updates the filter set using a comma-separated string of device types.
+	 * Each item is trimmed and stored uniquely.
+	 * * @param filterByDeviceType The comma-separated string of device types to apply.
+	 */
+	public void setDeviceTypeFilter(String deviceTypeFilter) {
+		this.deviceTypeFilter.clear();
+		if (StringUtils.isNotNullOrEmpty(deviceTypeFilter)) {
+			Arrays.asList(deviceTypeFilter.split(",")).forEach(item -> {
+				this.deviceTypeFilter.add(item.trim());
+			});
+		}
+	}
+
+	/**
+	 * The location criteria used for filtering.
+	 */
+	private String locationFilter = "";
+
+	/**
+	 * Retrieves the current location filter.
+	 *
+	 * @return The current location filter value.
+	 */
+	public String getLocationFilter() {
+		return locationFilter;
+	}
+
+	/**
+	 * Sets a new value for the location filter.
+	 *
+	 * @param locationFilter The new location string to use as a filter.
+	 */
+	public void setLocationFilter(String locationFilter) {
+		this.locationFilter = locationFilter;
+	}
+
 	/*--------- </Configuration properties> ---------*/
 
 	/**
@@ -526,7 +578,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void populateListDevice() {
 		try {
-			String jsonPayload = Util.requestBody(loginInfo.getToken(), null, null, null);
+			String jsonPayload = Util.requestBody(loginInfo.getToken(), deviceTypeFilter, locationFilter, null);
 			String result = this.doPost(DataprobeCommand.RETRIEVE_INFO, jsonPayload);
 			JsonNode listResponse = objectMapper.readTree(result);
 			if(listResponse.has(DataprobeConstant.DEVICES) && !listResponse.get(DataprobeConstant.DEVICES).isEmpty()){
@@ -612,6 +664,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		aggregatedDevice.setDynamicStatistics(Collections.emptyMap());
 
 		if (!configManagement) {
+			controls.clear();
 			controls.add(createText(DataprobeConstant.EMPTY, DataprobeConstant.EMPTY));
 		}
 		aggregatedDevice.setControllableProperties(controls);
@@ -648,7 +701,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			}
 
 			stats.put(nameKey, realName);
-			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, statusValue);
+			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.uppercaseFirstCharacter(statusValue));
 
 			if (isAutoPingKey(key)) {
 				return;
