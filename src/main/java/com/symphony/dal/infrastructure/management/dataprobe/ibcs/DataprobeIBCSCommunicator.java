@@ -295,14 +295,14 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * Stores the unique device types used for filtering results.
 	 */
-	private final Set<String> filterByDeviceType = new HashSet<>();
+	private final Set<String> deviceTypeFilter = new HashSet<>();
 
 	/**
 	 * Retrieves the device type filters as a comma-separated string.
 	 * * @return A string containing all active device type filters joined by commas.
 	 */
-	public String getFilterByDeviceType() {
-		return String.join(",", this.filterByDeviceType);
+	public String getDeviceTypeFilter() {
+		return String.join(",", this.deviceTypeFilter);
 	}
 
 	/**
@@ -310,11 +310,11 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * Each item is trimmed and stored uniquely.
 	 * * @param filterByDeviceType The comma-separated string of device types to apply.
 	 */
-	public void setFilterByDeviceType(String filterByDeviceType) {
-		this.filterByDeviceType.clear();
-		if (StringUtils.isNotNullOrEmpty(filterByDeviceType)) {
-			Arrays.asList(filterByDeviceType.split(",")).forEach(item -> {
-				this.filterByDeviceType.add(item.trim());
+	public void setDeviceTypeFilter(String deviceTypeFilter) {
+		this.deviceTypeFilter.clear();
+		if (StringUtils.isNotNullOrEmpty(deviceTypeFilter)) {
+			Arrays.asList(deviceTypeFilter.split(",")).forEach(item -> {
+				this.deviceTypeFilter.add(item.trim());
 			});
 		}
 	}
@@ -322,24 +322,24 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * The location criteria used for filtering.
 	 */
-	private String filterByLocation = "";
+	private String locationFilter = "";
 
 	/**
 	 * Retrieves the current location filter.
 	 *
 	 * @return The current location filter value.
 	 */
-	public String getFilterByLocation() {
-		return filterByLocation;
+	public String getLocationFilter() {
+		return locationFilter;
 	}
 
 	/**
 	 * Sets a new value for the location filter.
 	 *
-	 * @param filterByLocation The new location string to use as a filter.
+	 * @param locationFilter The new location string to use as a filter.
 	 */
-	public void setFilterByLocation(String filterByLocation) {
-		this.filterByLocation = filterByLocation;
+	public void setLocationFilter(String locationFilter) {
+		this.locationFilter = locationFilter;
 	}
 
 	/*--------- </Configuration properties> ---------*/
@@ -578,7 +578,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void populateListDevice() {
 		try {
-			String jsonPayload = Util.requestBody(loginInfo.getToken(), filterByDeviceType, filterByLocation, null);
+			String jsonPayload = Util.requestBody(loginInfo.getToken(), deviceTypeFilter, locationFilter, null);
 			String result = this.doPost(DataprobeCommand.RETRIEVE_INFO, jsonPayload);
 			JsonNode listResponse = objectMapper.readTree(result);
 			if(listResponse.has(DataprobeConstant.DEVICES) && !listResponse.get(DataprobeConstant.DEVICES).isEmpty()){
