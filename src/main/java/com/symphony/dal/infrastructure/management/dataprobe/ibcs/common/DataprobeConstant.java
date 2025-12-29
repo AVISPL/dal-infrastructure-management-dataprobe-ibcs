@@ -27,13 +27,13 @@ public class DataprobeConstant {
 	public static final String TRIGGER_INFO_GROUP = "TriggerInfo_";
 	public static final String OUTLET_GROUP = "Outlet_";
 	public static final String CONTROL = "Control";
-	public static final String AUTOPING = "AutoPing";
-	public static final String CONFIGURATION = "Configuration";
+
 	public static final String ERROR_CONTEXT_CONTROL = "control device";
 	public static final String ERROR_CONTEXT_REBOOT = "reboot device";
 	public static final String STATUS = "Status";
 	public static final String REBOOT = "Reboot";
 	public static final String HASH = "#";
+	public static final String COMMA = ",";
 	public static final String ZERO = "0";
 	public static final String ONE = "1";
 	public static final String UNDER_SCORE = "_";
@@ -54,4 +54,13 @@ public class DataprobeConstant {
 	/* Button */
 	public static final String CYCLE = "Cycle";
 	public static final String CYCLING = "Cycling";
+
+	/* Group filter */
+	public static final String GENERAL = "General";
+	public static final String ADVANCED_NETWORK = "AdvancedNetwork";
+	public static final String AUTOPING = "Autoping";
+	public static final String CONFIGURATION = "Configuration";
+	public static final String OUTLET = "Outlet";
+	public static final String NETWORK = "Network";
+	public static final String ALL = "All";
 }

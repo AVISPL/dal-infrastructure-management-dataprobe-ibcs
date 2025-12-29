@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -86,6 +87,13 @@ import com.avispl.symphony.dal.util.StringUtils;
  * @since 1.0.0
  */
 public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggregator, Monitorable, Controller {
+
+	/** Set of group filter for {@code displayPropertyGroups}. */
+	private static final Set<String> GROUP_FILTERS = new TreeSet<>(Set.of(
+			DataprobeConstant.ADVANCED_NETWORK, DataprobeConstant.AUTOPING, DataprobeConstant.CONFIGURATION,
+			DataprobeConstant.OUTLET, DataprobeConstant.NETWORK, DataprobeConstant.GENERAL
+	));
+
 	/**
 	 * ReentrantLock to prevent telnet session is closed when adapter is retrieving statistics from the device.
 	 */
@@ -292,6 +300,45 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		this.configManagement = configManagement;
 	}
 
+	/** Indicates whether groups are displayed; defaults is General. */
+	private final Set<String> displayPropertyGroups = new HashSet<>(Set.of(DataprobeConstant.GENERAL));
+
+	/**
+	 * Returns a comma-separated list of property group names that are configured to be displayed.
+	 *
+	 * @return a comma-separated string of display property group names; may be empty if no groups are configured
+	 */
+	public String getDisplayPropertyGroups() {
+		return String.join(DataprobeConstant.COMMA, this.displayPropertyGroups);
+	}
+
+	/**
+	 * Sets the display property groups based on a comma-separated list.
+	 * <p>
+	 * Trims values automatically. If All is present, SUPPORTED_GROUP_FILTERS are added.
+	 * Invalid groups trigger a warning and only the default group applied. {@code null} or empty input is ignored.
+	 * </p>
+	 *`
+	 * @param displayPropertyGroups comma-separated group names; may be {@code null} or empty
+	 */
+	public void setDisplayPropertyGroups(String displayPropertyGroups) {
+		if (StringUtils.isNullOrEmpty(displayPropertyGroups, true)) {
+			return;
+		}
+		Set<String> checkedGroups = Arrays.stream(displayPropertyGroups.split(DataprobeConstant.COMMA))
+				.map(String::trim).filter(p -> !p.isEmpty()).collect(Collectors.toSet());
+		if (checkedGroups.contains(DataprobeConstant.ALL)) {
+			this.displayPropertyGroups.addAll(GROUP_FILTERS);
+			return;
+		}
+		if (!CollectionUtils.containsAny(GROUP_FILTERS, checkedGroups)) {
+			this.logger.warn("No valid display property groups found from input: '%s'".formatted(displayPropertyGroups));
+		} else {
+			this.displayPropertyGroups.clear();
+			checkedGroups.stream().filter(GROUP_FILTERS::contains).forEach(this.displayPropertyGroups::add);
+		}
+	}
+
 	/**
 	 * Stores the unique device types used for filtering results.
 	 */
@@ -302,7 +349,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * * @return A string containing all active device type filters joined by commas.
 	 */
 	public String getDeviceTypeFilter() {
-		return String.join(",", this.deviceTypeFilter);
+		return String.join(DataprobeConstant.COMMA, this.deviceTypeFilter);
 	}
 
 	/**
@@ -313,7 +360,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	public void setDeviceTypeFilter(String deviceTypeFilter) {
 		this.deviceTypeFilter.clear();
 		if (StringUtils.isNotNullOrEmpty(deviceTypeFilter)) {
-			Arrays.asList(deviceTypeFilter.split(",")).forEach(item -> {
+			Arrays.asList(deviceTypeFilter.split(DataprobeConstant.COMMA)).forEach(item -> {
 				this.deviceTypeFilter.add(item.trim());
 			});
 		}
@@ -555,6 +602,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		nextDevicesCollectionIterationTimestamp = 0;
 		aggregatedDeviceList.clear();
 		cachedMonitoringDevice.clear();
+		displayPropertyGroups.clear();
 		super.internalDestroy();
 	}
 
@@ -654,10 +702,20 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		Map<String, String> stats = new HashMap<>();
 		List<AdvancedControllableProperty> controls = new ArrayList<>();
 
-		mapMonitorProperty(cachedData, stats, deviceMAC);
-		mapControllableProperty(stats, controls, cachedData);
-		mapOutletGroup(cachedData, stats, controls);
+		if(isDisplayGroup(DataprobeConstant.GENERAL)){
+			mapMonitorProperty(cachedData, stats, deviceMAC);
+		}
+
+		if(isDisplayGroup(DataprobeConstant.OUTLET)){
+			mapOutletGroup(cachedData, stats, controls);
+		}
+
+		if(isDisplayGroup(DataprobeConstant.AUTOPING)){
+			mapAutopingStatus(cachedData, stats, controls);
+		}
+
 		populateListConfigurationOfDevice(stats, deviceMAC, controls);
+		mapControllableProperty(stats, controls, cachedData);
 
 		aggregatedDevice.setProperties(stats);
 		aggregatedDevice.setTimestamp(System.currentTimeMillis());
@@ -688,6 +746,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
 				return;
 			}
+			if (isAutoPingKey(key)) {
+				return;
+			}
 
 			String groupName = key.substring(0,
 					key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
@@ -702,10 +763,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 			stats.put(nameKey, realName);
 			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.uppercaseFirstCharacter(statusValue));
-
-			if (isAutoPingKey(key)) {
-				return;
-			}
 
 			if ("inactive".equalsIgnoreCase(statusValue) || DataprobeConstant.CYCLE.equalsIgnoreCase(statusValue)) {
 				return;
@@ -724,6 +781,42 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			if (k.startsWith(DataprobeConstant.TRIGGER_INFO_GROUP)) {
 				stats.put(k, Util.getDefaultValueForNullData(v));
 			}
+		});
+	}
+
+	/**
+	 * Maps autoping status information from cached monitoring data
+	 * into statistics and advanced controllable properties.
+	 *
+	 * @param cachedData the cached monitoring data for a device
+	 * @param stats      the statistics map to populate
+	 * @param controls   the list of advanced controllable properties to populate
+	 */
+	private void mapAutopingStatus(Map<String, String> cachedData, Map<String, String> stats, List<AdvancedControllableProperty> controls) {
+		if (cachedData == null || cachedData.isEmpty()) {
+			return;
+		}
+		cachedData.forEach((key, rawStatus) -> {
+			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
+				return;
+			}
+			if (!isAutoPingKey(key)) {
+				return;
+			}
+
+			String groupName = key.substring(0,
+					key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
+
+			String statusValue = Util.getDefaultValueForNullData(rawStatus).toLowerCase();
+
+			String nameKey  = groupName + DataprobeConstant.HASH + "Name";
+			String realName = cachedData.get(nameKey);
+			if (realName == null || realName.isEmpty()) {
+				realName = groupName;
+			}
+
+			stats.put(nameKey, realName);
+			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.uppercaseFirstCharacter(statusValue));
 		});
 	}
 
@@ -762,12 +855,26 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 			Map<String, String> mappingValue = new HashMap<>();
 
-			populateNetworkConfig(root, mappingValue);
-			populateAdvancedNetworkConfig(root, mappingValue);
-			populateAutoPingConfig(root, mappingValue);
-			populateDeviceConfig(root, mappingValue);
+			if(isDisplayGroup(DataprobeConstant.NETWORK)){
+				populateNetworkConfig(root, mappingValue);
+				stats.putAll(mappingValue);
+			}
 
-			mappingConfigurationProperty(mappingValue, stats, controls);
+			if(isDisplayGroup(DataprobeConstant.ADVANCED_NETWORK)){
+				populateAdvancedNetworkConfig(root, mappingValue);
+				stats.putAll(mappingValue);
+			}
+
+			if(isDisplayGroup(DataprobeConstant.AUTOPING)){
+				populateAutoPingConfig(root, mappingValue);
+				stats.putAll(mappingValue);
+			}
+
+			if(isDisplayGroup(DataprobeConstant.CONFIGURATION)){
+				populateDeviceConfig(root, mappingValue);
+				stats.putAll(mappingValue);
+				mappingConfigurationProperty(mappingValue, stats, controls);
+			}
 		} catch (Exception e) {
 			throw new ResourceNotReachableException("Unable to retrieve device configuration", e);
 		}
@@ -1315,5 +1422,15 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		} catch (Exception e) {
 			throw new ResourceNotReachableException("Unable to " + errorContext, e);
 		}
+	}
+
+	/**
+	 * Checks whether the given group name is configured to be displayed.
+	 *
+	 * @param groupName the group name to check
+	 * @return {@code true} if {@code displayPropertyGroups} is not empty and contains {@code groupName}; otherwise {@code false}
+	 */
+	private boolean isDisplayGroup(String groupName) {
+		return !CollectionUtils.isEmpty(this.displayPropertyGroups) && this.displayPropertyGroups.contains(groupName);
 	}
 }
