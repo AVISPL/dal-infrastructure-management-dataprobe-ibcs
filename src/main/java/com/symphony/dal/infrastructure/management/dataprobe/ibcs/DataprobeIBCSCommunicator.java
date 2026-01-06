@@ -171,6 +171,17 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private long nextDevicesCollectionIterationTimestamp;
 
 	/**
+	 * Current monitoring cycle interval - amount of time that passes between 2 consecutive getMultipleStatistics calls
+	 * 60000ms by default
+	 * */
+	private volatile long systemMonitoringCycleInterval = 60000;
+
+	/**
+	 * Timestamp of the last getMultipleStatistics() call
+	 * */
+	private long lastMultipleStatisticsRetrievalTimestamp;
+
+	/**
 	 * This parameter holds timestamp of when we need to stop performing API calls
 	 * It used when device stop retrieving statistic. Updated each time of called #retrieveMultipleStatistics
 	 */
@@ -252,7 +263,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					} catch (Exception e) {
 						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
-					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 30000;
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + systemMonitoringCycleInterval;
 					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
@@ -549,6 +560,13 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	@Override
 	public List<Statistics> getMultipleStatistics() throws Exception {
 		reentrantLock.lock();
+
+		long currentTime = System.currentTimeMillis();
+		if (lastMultipleStatisticsRetrievalTimestamp > 0) {
+			systemMonitoringCycleInterval = currentTime - lastMultipleStatisticsRetrievalTimestamp;
+		}
+		lastMultipleStatisticsRetrievalTimestamp = currentTime;
+
 		try {
 			if (loginInfo == null) {
 				loginInfo = new LoginInfo();
@@ -1098,6 +1116,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			long adapterUptime = System.currentTimeMillis() - adapterInitializationTimestamp;
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
+			stats.put("SystemMonitoringCycleInterval", String.valueOf(systemMonitoringCycleInterval));
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
 			logger.error("Failed to populate metadata information", e);
