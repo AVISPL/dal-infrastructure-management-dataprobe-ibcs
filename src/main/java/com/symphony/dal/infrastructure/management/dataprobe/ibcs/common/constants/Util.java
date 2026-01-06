@@ -60,6 +60,9 @@ public class Util {
 	 * @return string after fix
 	 */
 	public static String uppercaseFirstCharacter(String input) {
+		if (input == null || input.isEmpty()) {
+			return input;
+		}
 		char firstChar = input.charAt(0);
 		return Character.toUpperCase(firstChar) + input.substring(1);
 	}
