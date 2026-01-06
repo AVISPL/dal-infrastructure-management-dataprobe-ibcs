@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -43,7 +42,7 @@ import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.LoginInf
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants.Util;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.AggregatedInformation;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationAdvancedNetwork;
-import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationAutoPing;
+import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationAutoping;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationDevice;
 import com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.metric.ConfigurationNetwork;
 import javax.security.auth.login.FailedLoginException;
@@ -89,10 +88,14 @@ import com.avispl.symphony.dal.util.StringUtils;
 public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggregator, Monitorable, Controller {
 
 	/** Set of group filter for {@code displayPropertyGroups}. */
-	private static final Set<String> GROUP_FILTERS = new TreeSet<>(Set.of(
-			DataprobeConstant.ADVANCED_NETWORK, DataprobeConstant.AUTOPING, DataprobeConstant.CONFIGURATION,
-			DataprobeConstant.OUTLET, DataprobeConstant.NETWORK, DataprobeConstant.GENERAL
-	));
+	private static final Set<String> GROUP_FILTERS = Set.of(
+			DataprobeConstant.ADVANCED_NETWORK,
+			DataprobeConstant.AUTOPING,
+			DataprobeConstant.CONFIGURATION,
+			DataprobeConstant.OUTLET,
+			DataprobeConstant.NETWORK,
+			DataprobeConstant.GENERAL
+	);
 
 	/**
 	 * ReentrantLock to prevent telnet session is closed when adapter is retrieving statistics from the device.
@@ -326,17 +329,22 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			return;
 		}
 		Set<String> checkedGroups = Arrays.stream(displayPropertyGroups.split(DataprobeConstant.COMMA))
-				.map(String::trim).filter(p -> !p.isEmpty()).collect(Collectors.toSet());
+				.map(String::trim)
+				.filter(p -> !p.isEmpty())
+				.collect(Collectors.toSet());
+
+		this.displayPropertyGroups.clear();
+
 		if (checkedGroups.contains(DataprobeConstant.ALL)) {
 			this.displayPropertyGroups.addAll(GROUP_FILTERS);
 			return;
 		}
+
 		if (!CollectionUtils.containsAny(GROUP_FILTERS, checkedGroups)) {
 			this.logger.warn("No valid display property groups found from input: '%s'".formatted(displayPropertyGroups));
-		} else {
-			this.displayPropertyGroups.clear();
-			checkedGroups.stream().filter(GROUP_FILTERS::contains).forEach(this.displayPropertyGroups::add);
+			return;
 		}
+		checkedGroups.stream().filter(GROUP_FILTERS::contains).forEach(this.displayPropertyGroups::add);
 	}
 
 	/**
@@ -704,6 +712,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 		if(isDisplayGroup(DataprobeConstant.GENERAL)){
 			mapMonitorProperty(cachedData, stats, deviceMAC);
+			mapControllableProperty(stats, controls, cachedData);
 		}
 
 		if(isDisplayGroup(DataprobeConstant.OUTLET)){
@@ -715,7 +724,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		}
 
 		populateListConfigurationOfDevice(stats, deviceMAC, controls);
-		mapControllableProperty(stats, controls, cachedData);
 
 		aggregatedDevice.setProperties(stats);
 		aggregatedDevice.setTimestamp(System.currentTimeMillis());
@@ -746,7 +754,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
 				return;
 			}
-			if (isAutoPingKey(key)) {
+			if (isAutopingKey(key)) {
 				return;
 			}
 
@@ -800,7 +808,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
 				return;
 			}
-			if (!isAutoPingKey(key)) {
+			if (!isAutopingKey(key)) {
 				return;
 			}
 
@@ -821,13 +829,13 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
-	 * Determines whether the given mapping key belongs to an AutoPing group.
-	 * "AutoPing_1", "AutoPing_2", etc.
+	 * Determines whether the given mapping key belongs to an Autoping group.
+	 * "Autoping_1", "Autoping_2", etc.
 	 *
 	 * @param key the flattened mapping key to inspect (e.g. "AutoPing_1#Status")
 	 * @return {@code true} if the key prefix contains the AutoPing marker, {@code false} otherwise
 	 */
-	private boolean isAutoPingKey(String key) {
+	private boolean isAutopingKey(String key) {
 		String[] parts = key.split(DataprobeConstant.UNDER_SCORE, 2);
 		return parts.length > 0 && parts[0].contains(DataprobeConstant.AUTOPING);
 	}
@@ -943,7 +951,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 	/**
 	 * Populates the mapping with flattened AutoPing configuration values.
-	 * The {@code autoping} node is first remapped using {@link ConfigurationAutoPing}
+	 * The {@code autoping} node is first remapped using {@link ConfigurationAutoping}
 	 * and then flattened into the provided map.
 	 *
 	 * @param root         the root JSON node containing the AutoPing section
@@ -953,9 +961,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		JsonNode autopingNode = root.path("autoping");
 		Util.mappingConfig(
 				autopingNode,
-				ConfigurationAutoPing.values(),
-				ConfigurationAutoPing::getField,
-				ConfigurationAutoPing::getName,
+				ConfigurationAutoping.values(),
+				ConfigurationAutoping::getField,
+				ConfigurationAutoping::getName,
 				(e, value) -> value
 		);
 		flattenConfigObject(autopingNode, DataprobeConstant.AUTOPING, mappingValue);
@@ -1252,7 +1260,17 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			String key = entry.getKey();
 			JsonNode value = entry.getValue();
 			String mapKey = group + DataprobeConstant.HASH + Util.uppercaseFirstCharacter(key);
-			mappingValue.put(mapKey, value.isNull() ? DataprobeConstant.EMPTY : value.asText(DataprobeConstant.EMPTY));
+			String rawValue = (value == null || value.isNull())
+					? DataprobeConstant.EMPTY
+					: value.asText(DataprobeConstant.EMPTY);
+			if (DataprobeConstant.TRUE.equals(rawValue) || DataprobeConstant.FALSE.equals(rawValue) || DataprobeConstant.CONFIGURATION_LOCATION.equals(mapKey)){
+				mappingValue.put(mapKey, rawValue);
+				return;
+			} else if(ConfigurationNetwork.IP_MODE.getName().equals(key)){
+				mappingValue.put(mapKey, rawValue.toUpperCase());
+				return;
+			}
+			mappingValue.put(mapKey, Util.uppercaseFirstCharacter(rawValue));
 		});
 	}
 

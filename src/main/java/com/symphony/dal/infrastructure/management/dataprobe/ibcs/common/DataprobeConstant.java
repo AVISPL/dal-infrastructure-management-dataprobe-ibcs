@@ -27,6 +27,7 @@ public class DataprobeConstant {
 	public static final String TRIGGER_INFO_GROUP = "TriggerInfo_";
 	public static final String OUTLET_GROUP = "Outlet_";
 	public static final String CONTROL = "Control";
+	public static final String CONFIGURATION_LOCATION = "Configuration#Location";
 
 	public static final String ERROR_CONTEXT_CONTROL = "control device";
 	public static final String ERROR_CONTEXT_REBOOT = "reboot device";
