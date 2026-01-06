@@ -227,9 +227,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					if (!inProgress) {
 						break loop;
 					}
-					if (!inProgress) {
-						break loop;
-					}
 
 					updateAggregatorStatus();
 					if (devicePaused) {
@@ -520,7 +517,10 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 	@Override
 	public List<AggregatedDevice> retrieveMultipleStatistics() {
-		if (executorService == null) {
+		if (executorService == null || executorService.isTerminated() || executorService.isShutdown()) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Restarting executor service and initializing with the new data loader");
+			}
 			executorService = Executors.newFixedThreadPool(1);
 			executorService.submit(deviceDataLoader = new DataprobeIBCSCloudDataLoader());
 		}
@@ -636,8 +636,20 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		try {
 			String jsonPayload = Util.requestBody(loginInfo.getToken(), deviceTypeFilter, locationFilter, null);
 			String result = this.doPost(DataprobeCommand.RETRIEVE_INFO, jsonPayload);
+
+			if (logger.isDebugEnabled()) {
+				logger.debug(String.format("Device list response received. length=%s", result == null ? -1 : result.length()));
+			}
+
 			JsonNode listResponse = objectMapper.readTree(result);
-			if(listResponse.has(DataprobeConstant.DEVICES) && !listResponse.get(DataprobeConstant.DEVICES).isEmpty()){
+
+			if (!listResponse.has(DataprobeConstant.DEVICES) || listResponse.get(DataprobeConstant.DEVICES).isEmpty()) {
+				if (logger.isDebugEnabled()) {
+					logger.debug(String.format("No devices returned. endpoint=%s, deviceTypeFilter=%s, locationFilter=%s",
+							DataprobeCommand.RETRIEVE_INFO, deviceTypeFilter, locationFilter));
+				}
+				return;
+			}
 				JsonNode data = listResponse.path(DataprobeConstant.DEVICES);
 				if (data == null || !data.isArray() || data.isEmpty()) {
 					return;
@@ -660,7 +672,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					parseStatusAndTrigger(node, mappingValue);
 					putMapIntoCachedData(deviceMACAddress, mappingValue);
 				}
-			}
 		} catch (Exception e) {
 			throw new ResourceNotReachableException("Unable to retrieve names from response.", e);
 		}
