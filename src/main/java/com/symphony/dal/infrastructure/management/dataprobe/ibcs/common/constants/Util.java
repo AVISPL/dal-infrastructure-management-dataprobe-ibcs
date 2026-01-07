@@ -3,8 +3,6 @@
  */
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants;
 
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,10 +26,6 @@ import com.avispl.symphony.dal.util.StringUtils;
  * @since 1.0.0
  */
 public class Util {
-
-	private static final ZoneId ZONE_HCM = ZoneId.of("Asia/Ho_Chi_Minh");
-	private static final DateTimeFormatter FORMATTER =
-			DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss").withZone(ZONE_HCM);
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final ObjectMapper objectMapper = new ObjectMapper();
 

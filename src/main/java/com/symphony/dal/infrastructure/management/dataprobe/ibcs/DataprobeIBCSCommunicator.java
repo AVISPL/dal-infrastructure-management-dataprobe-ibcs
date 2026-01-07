@@ -749,7 +749,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		}
 
 		if(isDisplayGroup(DataprobeConstant.AUTOPING)){
-			mapAutopingStatus(cachedData, stats, controls);
+			mapAutopingStatus(cachedData, stats);
 		}
 
 		populateListConfigurationOfDevice(stats, deviceMAC, controls);
@@ -827,9 +827,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 *
 	 * @param cachedData the cached monitoring data for a device
 	 * @param stats      the statistics map to populate
-	 * @param controls   the list of advanced controllable properties to populate
 	 */
-	private void mapAutopingStatus(Map<String, String> cachedData, Map<String, String> stats, List<AdvancedControllableProperty> controls) {
+	private void mapAutopingStatus(Map<String, String> cachedData, Map<String, String> stats) {
 		if (cachedData == null || cachedData.isEmpty()) {
 			return;
 		}
@@ -1030,6 +1029,10 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(minutes)", timeToLogout, value), value);
 					stats.remove(name);
 					mappingValue.remove(name);
+					break;
+				case LOCATION:
+					stats.remove(name);
+					stats.put("LocationID", value);
 					break;
 				case CYCLE_TIME:
 					List<String> cycleTime = new ArrayList<>();

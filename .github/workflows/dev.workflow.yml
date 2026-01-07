@@ -28,7 +28,7 @@ jobs:
       - id: shortrev
         run: echo "rev=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - id: pversion
-        run: echo "ver=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout| sed -e 's/-SNAPSHOT//g')" >> $GITHUB_OUTPUT
+        run: echo "ver=$(mvn help:evaluate "-Dexpression=project.version" -q -DforceStdout| sed -e 's/-SNAPSHOT//g')" >> $GITHUB_OUTPUT
   versiongenerate:
     runs-on: ubuntu-latest
     needs: prep
