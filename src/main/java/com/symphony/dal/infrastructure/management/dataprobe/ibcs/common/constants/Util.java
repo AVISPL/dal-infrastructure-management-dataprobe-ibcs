@@ -62,6 +62,30 @@ public class Util {
 	}
 
 	/**
+	 * Capitalizes the first character of each hyphen-separated part of the given string.
+	 * <p>
+	 * Example: {@code "on-follow"} -> {@code "On-Follow"}.
+	 * </p>
+	 *
+	 * @param input the input string
+	 * @return the transformed string with each hyphen part capitalized, or the original input if {@code null} or empty
+	 */
+	public static String uppercaseFirstCharacterEachHyphenPart(String input) {
+		if (input == null || input.isEmpty()) {
+			return input;
+		}
+
+		String[] parts = input.split("-", -1);
+		for (int i = 0; i < parts.length; i++) {
+			String p = parts[i];
+			if (p == null || p.isEmpty()) continue;
+			parts[i] = Character.toUpperCase(p.charAt(0)) + p.substring(1);
+		}
+		return String.join("-", parts);
+	}
+
+
+	/**
 	 * check value is null or empty
 	 *
 	 * @param value input value

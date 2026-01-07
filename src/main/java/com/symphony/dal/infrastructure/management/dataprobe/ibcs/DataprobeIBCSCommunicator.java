@@ -320,7 +320,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * @return a comma-separated string of display property group names; may be empty if no groups are configured
 	 */
 	public String getDisplayPropertyGroups() {
-		return String.join(DataprobeConstant.COMMA, this.displayPropertyGroups);
+		return String.join(DataprobeConstant.COMMA_SPACE, this.displayPropertyGroups);
 	}
 
 	/**
@@ -739,20 +739,15 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		Map<String, String> stats = new HashMap<>();
 		List<AdvancedControllableProperty> controls = new ArrayList<>();
 
-		if(isDisplayGroup(DataprobeConstant.GENERAL)){
-			mapMonitorProperty(cachedData, stats, deviceMAC);
-			mapControllableProperty(stats, controls, cachedData);
-		}
-
-		if(isDisplayGroup(DataprobeConstant.OUTLET)){
-			mapOutletGroup(cachedData, stats, controls);
-		}
-
 		if(isDisplayGroup(DataprobeConstant.AUTOPING)){
 			mapAutopingStatus(cachedData, stats);
 		}
 
 		populateListConfigurationOfDevice(stats, deviceMAC, controls);
+
+		mapOutletAndTriggerInfoGroup(cachedData, stats, controls);
+		mapMonitorProperty(cachedData, stats, deviceMAC);
+		mapControllableProperty(stats, controls, cachedData);
 
 		aggregatedDevice.setProperties(stats);
 		aggregatedDevice.setTimestamp(System.currentTimeMillis());
@@ -775,50 +770,52 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * @param stats      the statistics map to populate
 	 * @param controls   the list of advanced controllable properties to populate
 	 */
-	private void mapOutletGroup(Map<String, String> cachedData, Map<String, String> stats, List<AdvancedControllableProperty> controls) {
+	private void mapOutletAndTriggerInfoGroup(Map<String, String> cachedData, Map<String, String> stats, List<AdvancedControllableProperty> controls) {
 		if (cachedData == null || cachedData.isEmpty()) {
 			return;
 		}
-		cachedData.forEach((key, rawStatus) -> {
-			if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
-				return;
-			}
-			if (isAutopingKey(key)) {
-				return;
-			}
+		if(isDisplayGroup(DataprobeConstant.OUTLET)) {
+			cachedData.forEach((key, rawStatus) -> {
+				if (!key.endsWith(DataprobeConstant.HASH + DataprobeConstant.STATUS)) {
+					return;
+				}
+				if (isAutopingKey(key)) {
+					return;
+				}
 
-			String groupName = key.substring(0,
-					key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
+				String groupName = key.substring(0,
+						key.indexOf(DataprobeConstant.HASH + DataprobeConstant.STATUS));
 
-			String statusValue = Util.getDefaultValueForNullData(rawStatus).toLowerCase();
+				String statusValue = Util.getDefaultValueForNullData(rawStatus).toLowerCase();
 
-			String nameKey  = groupName + DataprobeConstant.HASH + "Name";
-			String realName = cachedData.get(nameKey);
-			if (realName == null || realName.isEmpty()) {
-				realName = groupName;
-			}
+				String nameKey = groupName + DataprobeConstant.HASH + "Name";
+				String realName = cachedData.get(nameKey);
+				if (realName == null || realName.isEmpty()) {
+					realName = groupName;
+				}
 
-			stats.put(nameKey, realName);
-			stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.uppercaseFirstCharacter(statusValue));
+				stats.put(nameKey, realName);
+				stats.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, Util.uppercaseFirstCharacter(statusValue));
 
-			if ("inactive".equalsIgnoreCase(statusValue) || DataprobeConstant.CYCLE.equalsIgnoreCase(statusValue)) {
-				return;
-			}
+				if ("inactive".equalsIgnoreCase(statusValue) || DataprobeConstant.CYCLE.equalsIgnoreCase(statusValue)) {
+					return;
+				}
 
-			boolean isOn = DataprobeConstant.ON.equalsIgnoreCase(statusValue);
-			String controlKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL;
-			String cycleKey   = groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE;
+				boolean isOn = DataprobeConstant.ON.equalsIgnoreCase(statusValue);
+				String controlKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL;
+				String cycleKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE;
 
-			Util.addAdvancedControlProperties(controls, stats, createSwitch(controlKey, isOn ? 1 : 0), isOn ? DataprobeConstant.ONE : DataprobeConstant.ZERO);
-			Util.addAdvancedControlProperties(controls, stats, createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE);
-		});
+				Util.addAdvancedControlProperties(controls, stats, createSwitch(controlKey, isOn ? 1 : 0), isOn ? DataprobeConstant.ONE : DataprobeConstant.ZERO);
+				Util.addAdvancedControlProperties(controls, stats, createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE);
+			});
+		}
 
-		// Map TriggerInfo_*
-		cachedData.forEach((k, v) -> {
-			if (k.startsWith(DataprobeConstant.TRIGGER_INFO_GROUP)) {
-				stats.put(k, Util.getDefaultValueForNullData(v));
-			}
-		});
+			// Map TriggerInfo_*
+			cachedData.forEach((k, v) -> {
+				if (k.startsWith(DataprobeConstant.TRIGGER_INFO_GROUP)) {
+					stats.put(k, Util.getDefaultValueForNullData(v));
+				}
+			});
 	}
 
 	/**
@@ -1119,7 +1116,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			long adapterUptime = System.currentTimeMillis() - adapterInitializationTimestamp;
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
-			stats.put("SystemMonitoringCycleInterval", String.valueOf(systemMonitoringCycleInterval));
+			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(systemMonitoringCycleInterval));
+			stats.put(DataprobeConstant.ACTIVE_PROPERTY_GROUPS, this.getDisplayPropertyGroups());
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
 			logger.error("Failed to populate metadata information", e);
@@ -1301,6 +1299,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				return;
 			} else if(ConfigurationNetwork.IP_MODE.getName().equals(key)){
 				mappingValue.put(mapKey, rawValue.toUpperCase());
+				return;
+			} else if(ConfigurationAutoping.AP_A_ACTION.getName().equals(key)){
+				mappingValue.put(mapKey, Util.uppercaseFirstCharacterEachHyphenPart(rawValue));
 				return;
 			}
 			mappingValue.put(mapKey, Util.uppercaseFirstCharacter(rawValue));
