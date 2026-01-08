@@ -320,7 +320,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * @return a comma-separated string of display property group names; may be empty if no groups are configured
 	 */
 	public String getDisplayPropertyGroups() {
-		return String.join(DataprobeConstant.COMMA_SPACE, this.displayPropertyGroups);
+		return this.displayPropertyGroups.stream()
+				.sorted()
+				.collect(Collectors.joining(DataprobeConstant.COMMA_SPACE));
 	}
 
 	/**
@@ -350,6 +352,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 		if (!CollectionUtils.containsAny(GROUP_FILTERS, checkedGroups)) {
 			this.logger.warn("No valid display property groups found from input: '%s'".formatted(displayPropertyGroups));
+			this.displayPropertyGroups.add(DataprobeConstant.GENERAL);
 			return;
 		}
 		checkedGroups.stream().filter(GROUP_FILTERS::contains).forEach(this.displayPropertyGroups::add);
@@ -1029,7 +1032,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					break;
 				case LOCATION:
 					stats.remove(name);
-					stats.put("LocationID", value);
+					mappingValue.remove(name);
+					stats.put("Configuration#LocationID", value);
 					break;
 				case CYCLE_TIME:
 					List<String> cycleTime = new ArrayList<>();
