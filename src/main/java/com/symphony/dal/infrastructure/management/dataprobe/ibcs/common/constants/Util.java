@@ -3,8 +3,6 @@
  */
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs.common.constants;
 
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,10 +26,6 @@ import com.avispl.symphony.dal.util.StringUtils;
  * @since 1.0.0
  */
 public class Util {
-
-	private static final ZoneId ZONE_HCM = ZoneId.of("Asia/Ho_Chi_Minh");
-	private static final DateTimeFormatter FORMATTER =
-			DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss").withZone(ZONE_HCM);
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -66,6 +60,30 @@ public class Util {
 		char firstChar = input.charAt(0);
 		return Character.toUpperCase(firstChar) + input.substring(1);
 	}
+
+	/**
+	 * Capitalizes the first character of each hyphen-separated part of the given string.
+	 * <p>
+	 * Example: {@code "on-follow"} -> {@code "On-Follow"}.
+	 * </p>
+	 *
+	 * @param input the input string
+	 * @return the transformed string with each hyphen part capitalized, or the original input if {@code null} or empty
+	 */
+	public static String uppercaseFirstCharacterEachHyphenPart(String input) {
+		if (input == null || input.isEmpty()) {
+			return input;
+		}
+
+		String[] parts = input.split("-", -1);
+		for (int i = 0; i < parts.length; i++) {
+			String p = parts[i];
+			if (p == null || p.isEmpty()) continue;
+			parts[i] = Character.toUpperCase(p.charAt(0)) + p.substring(1);
+		}
+		return String.join("-", parts);
+	}
+
 
 	/**
 	 * check value is null or empty
