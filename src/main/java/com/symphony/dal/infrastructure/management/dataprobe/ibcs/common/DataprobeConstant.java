@@ -35,6 +35,7 @@ public class DataprobeConstant {
 	public static final String REBOOT = "Reboot";
 	public static final String HASH = "#";
 	public static final String COMMA = ",";
+	public static final String COMMA_SPACE = ", ";
 	public static final String ZERO = "0";
 	public static final String ONE = "1";
 	public static final String UNDER_SCORE = "_";
@@ -47,6 +48,8 @@ public class DataprobeConstant {
 	public static final String ADAPTER_BUILD_DATE = "AdapterBuildDate";
 	public static final String ADAPTER_UPTIME_MIN = "AdapterUptime(min)";
 	public static final String ADAPTER_UPTIME = "AdapterUptime";
+	public static final String SYSTEM_MONITORING_CYCLE = "SystemMonitoringCycleInterval";
+	public static final String ACTIVE_PROPERTY_GROUPS = "ActivePropertyGroups";
 
 	/* Response properties */
 	public static final String RESPONSE_SUCCESS = "/success";
