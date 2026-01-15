@@ -352,9 +352,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 		if (!CollectionUtils.containsAny(GROUP_FILTERS, checkedGroups)) {
 			this.logger.warn("No valid display property groups found from input: '%s'".formatted(displayPropertyGroups));
-			this.displayPropertyGroups.add(DataprobeConstant.GENERAL);
 			return;
 		}
+		this.displayPropertyGroups.add(DataprobeConstant.GENERAL);
 		checkedGroups.stream().filter(GROUP_FILTERS::contains).forEach(this.displayPropertyGroups::add);
 	}
 
