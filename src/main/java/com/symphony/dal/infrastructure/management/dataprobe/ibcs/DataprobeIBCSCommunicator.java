@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -96,6 +97,32 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			DataprobeConstant.NETWORK,
 			DataprobeConstant.GENERAL
 	);
+
+	/**
+	 * Pending override state for an outlet within a TTL window.
+	 *
+	 * @param control  outlet control value
+	 * @param status   outlet status label
+	 * @param expiryMs expiry timestamp in milliseconds
+	 */
+	private record PendingOutletState(String control, String status, long expiryMs) {}
+
+	/** Stores temporary outlet overrides after a control action to prevent polling from overwriting recent changes. */
+	private final ConcurrentHashMap<String, PendingOutletState> pendingOutletState = new ConcurrentHashMap<>();
+
+	/** TTL for pending outlet overrides after a control request. */
+	private static final long OUTLET_PENDING_TTL_MS = 5000;
+
+	/**
+	 * Builds a unique key for an outlet within a device.
+	 *
+	 * @param deviceId the device identifier
+	 * @param outletGroupName the outlet group name
+	 * @return a stable key used for pending override tracking
+	 */
+	private static String outletPendingKey(String deviceId, String outletGroupName) {
+		return deviceId + "|" + outletGroupName;
+	}
 
 	/**
 	 * ReentrantLock to prevent telnet session is closed when adapter is retrieving statistics from the device.
@@ -674,9 +701,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				if (data == null || !data.isArray() || data.isEmpty()) {
 					return;
 				}
-				synchronized (cachedMonitoringDevice) {
-					cachedMonitoringDevice.clear();
-				}
+
+				Map<String, Map<String, String>> nextDeviceCache = new HashMap<>();
 
 				for (JsonNode node : data) {
 					String deviceMACAddress = node.get("mac").asText("");
@@ -690,8 +716,13 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						}
 					}
 					parseStatusAndTrigger(node, mappingValue);
-					putMapIntoCachedData(deviceMACAddress, mappingValue);
+					applyPendingOutletOverrides(deviceMACAddress, mappingValue);
+					nextDeviceCache.put(deviceMACAddress, mappingValue);
 				}
+			synchronized (cachedMonitoringDevice) {
+				cachedMonitoringDevice.clear();
+				cachedMonitoringDevice.putAll(nextDeviceCache);
+			}
 		} catch (Exception e) {
 			throw new ResourceNotReachableException("Unable to retrieve names from response.", e);
 		}
@@ -1025,7 +1056,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					for (int i = 0; i <= 99; i++){
 						timeToLogout.add(String.valueOf(i));
 					}
-					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(minutes)", timeToLogout, value), value);
+					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", timeToLogout, value), value);
 					stats.remove(name);
 					mappingValue.remove(name);
 					break;
@@ -1311,20 +1342,30 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		});
 	}
 
-	/**
-	 * Puts the provided mapping values into the cached monitoring data for the specified device ID.
-	 *
-	 * @param deviceMAC The MAC address of the device.
-	 * @param mappingValue The mapping values to be added.
-	 */
-	private void putMapIntoCachedData(String deviceMAC, Map<String, String> mappingValue) {
-		synchronized (cachedMonitoringDevice) {
-			Map<String, String> map = new HashMap<>();
-			if (cachedMonitoringDevice.get(deviceMAC) != null) {
-				map = cachedMonitoringDevice.get(deviceMAC);
+		/**
+		 * Applies active pending outlet overrides (within TTL) to the given device mapping
+		 * to prevent polling from overwriting recent control changes. Removes expired entries.
+		 *
+		 * @param deviceId     target device identifier
+		 * @param mappingValue device properties to update in-place
+		 */
+	private void applyPendingOutletOverrides(String deviceId, Map<String, String> mappingValue) {
+		for (String k : new ArrayList<>(mappingValue.keySet())) {
+			int hashIdx = k.indexOf(DataprobeConstant.HASH);
+			if (hashIdx <= 0) continue;
+
+			String group = k.substring(0, hashIdx);
+			if (!group.startsWith("Outlet_")) continue;
+
+			PendingOutletState p = pendingOutletState.get(outletPendingKey(deviceId, group));
+			if (p == null) continue;
+
+			if (p.expiryMs > System.currentTimeMillis()) {
+				mappingValue.put(group + "#Control", p.control);
+				mappingValue.put(group + "#Status",  p.status);
+			} else {
+				pendingOutletState.remove(outletPendingKey(deviceId, group));
 			}
-			map.putAll(mappingValue);
-			cachedMonitoringDevice.put(deviceMAC, map);
 		}
 	}
 
@@ -1339,19 +1380,30 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private void updateCachedMonitoringAfterControl(String deviceId, String controlProperty, String value) {
 		synchronized (cachedMonitoringDevice) {
 			Map<String, String> cachedData = cachedMonitoringDevice.get(deviceId);
-			if (cachedData == null) {
-				return;
-			}
+			if (cachedData == null) return;
+
 			cachedData.put(controlProperty, value);
+
 			if (controlProperty.endsWith(DataprobeConstant.HASH + DataprobeConstant.CONTROL)) {
 
 				String groupName = controlProperty.substring(0, controlProperty.indexOf(DataprobeConstant.HASH + DataprobeConstant.CONTROL));
 				String status = DataprobeConstant.ONE.equals(value) ? DataprobeConstant.ON : DataprobeConstant.OFF;
+				long exp = System.currentTimeMillis() + OUTLET_PENDING_TTL_MS;
+
+				pendingOutletState.put(outletPendingKey(deviceId, groupName),
+						new PendingOutletState(value, status, exp));
 
 				cachedData.put(groupName + DataprobeConstant.HASH + DataprobeConstant.STATUS, status);
+				return;
+			}
 
-			} else if (cachedData.get("Model").contains("G2") && controlProperty.contains(DataprobeConstant.CYCLE)){
+			String model = cachedData.getOrDefault("Model", "");
+			if (model.contains("G2") && controlProperty.endsWith(DataprobeConstant.HASH + DataprobeConstant.CYCLE)) {
 				String groupName = controlProperty.substring(0, controlProperty.indexOf(DataprobeConstant.HASH + DataprobeConstant.CYCLE));
+				long exp = System.currentTimeMillis() + OUTLET_PENDING_TTL_MS;
+
+				pendingOutletState.put(outletPendingKey(deviceId, groupName),
+						new PendingOutletState(null, DataprobeConstant.CYCLE, exp));
 
 				cachedData.remove(groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL);
 				cachedData.remove(groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE);
