@@ -3,10 +3,7 @@
  */
 package com.symphony.dal.infrastructure.management.dataprobe.ibcs;
 
-import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createButton;
-import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createDropdown;
-import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createSwitch;
-import static com.avispl.symphony.dal.util.ControllablePropertyFactory.createText;
+import com.avispl.symphony.dal.util.ControllablePropertyFactory;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -788,7 +785,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 		if (!configManagement) {
 			controls.clear();
-			controls.add(createText(DataprobeConstant.EMPTY, DataprobeConstant.EMPTY));
+			controls.add(ControllablePropertyFactory.createText(DataprobeConstant.EMPTY, DataprobeConstant.EMPTY));
 		}
 		aggregatedDevice.setControllableProperties(controls);
 
@@ -838,8 +835,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 				String controlKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CONTROL;
 				String cycleKey = groupName + DataprobeConstant.HASH + DataprobeConstant.CYCLE;
 
-				Util.addAdvancedControlProperties(controls, stats, createSwitch(controlKey, isOn ? 1 : 0), isOn ? DataprobeConstant.ONE : DataprobeConstant.ZERO);
-				Util.addAdvancedControlProperties(controls, stats, createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE);
+				Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createSwitch(controlKey, isOn ? 1 : 0), isOn ? DataprobeConstant.ONE : DataprobeConstant.ZERO);
+				Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createButton(cycleKey, DataprobeConstant.CYCLE, DataprobeConstant.CYCLING, 0L), DataprobeConstant.NONE);
 			});
 		}
 
@@ -1040,23 +1037,24 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			String value = mappingValue.get(name);
 			switch (device){
 				case DISABLE_OFF:
-					Util.addAdvancedControlProperties(controls, stats, createSwitch(name, Integer.parseInt(value)), value );
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createSwitch(name, Integer.parseInt(value)), value );
 					break;
 				case UPGRADE_ENABLE:
-					Util.addAdvancedControlProperties(controls, stats, createSwitch(device.getGroup() + DataprobeConstant.HASH + "UpgradeEnabled", Integer.parseInt(value)), value );
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createSwitch(device.getGroup() + DataprobeConstant.HASH + "UpgradeEnabled", Integer.parseInt(value)), value );
 					stats.remove(name);
 					mappingValue.remove(name);
 					break;
 				case INITIAL_STATE:
 					List<String> listInitial = Arrays.asList("On", "Off", "Last");
-					Util.addAdvancedControlProperties(controls, stats, createDropdown(name, listInitial, Util.uppercaseFirstCharacter(value)), Util.uppercaseFirstCharacter(value));
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createDropdown(name, listInitial, Util.uppercaseFirstCharacter(value)), Util.uppercaseFirstCharacter(value));
 					break;
 				case AUTO_LOGOUT:
-					List<String> timeToLogout = new ArrayList<>();
-					for (int i = 0; i <= 99; i++){
-						timeToLogout.add(String.valueOf(i));
-					}
-					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", timeToLogout, value), value);
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(minutes)", value), value);
+					stats.remove(name);
+					mappingValue.remove(name);
+					break;
+				case CYCLE_TIME:
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(s)", value), value);
 					stats.remove(name);
 					mappingValue.remove(name);
 					break;
@@ -1064,15 +1062,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					stats.remove(name);
 					mappingValue.remove(name);
 					stats.put("Configuration#LocationID", value);
-					break;
-				case CYCLE_TIME:
-					List<String> cycleTime = new ArrayList<>();
-					for (int i = 1; i <= 999; i++){
-						cycleTime.add(String.valueOf(i));
-					}
-					Util.addAdvancedControlProperties(controls, stats, createDropdown(name + "(s)", cycleTime, value), value);
-					stats.remove(name);
-					mappingValue.remove(name);
 					break;
 				default:
 					stats.putAll(mappingValue);
@@ -1125,7 +1114,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private void mapControllableProperty(Map<String, String> stats, List<AdvancedControllableProperty> control, Map<String, String> cachedData) {
 		String model = cachedData.get(AggregatedInformation.MODEL.getName());
 		if(model != null && model.toUpperCase().contains("G2")){
-			Util.addAdvancedControlProperties(control, stats, createButton(DataprobeConstant.REBOOT, DataprobeConstant.REBOOT, "Rebooting", 0), DataprobeConstant.NONE);
+			Util.addAdvancedControlProperties(control, stats, ControllablePropertyFactory.createButton(DataprobeConstant.REBOOT, DataprobeConstant.REBOOT, "Rebooting", 0), DataprobeConstant.NONE);
 		} else {
 			stats.put(DataprobeConstant.REBOOT, DataprobeConstant.NOT_AVAILABLE);
 		}
@@ -1454,12 +1443,29 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			throw new IllegalArgumentException("Unsupported device control property: " + controlProperty);
 		}
 		DeviceConfig deviceConfig = new DeviceConfig();
+
 		switch (configField) {
 			case LOCATION:
 				deviceConfig.setLocation(value);
 				break;
 			case CYCLE_TIME:
-				deviceConfig.setCycleTime(value);
+				int cycleTime = parseIntOrThrow(value, "CycleTime");
+				int cycleTimeClamped = clamp(cycleTime, 1, 999);
+
+				deviceConfig.setCycleTime(String.valueOf(cycleTimeClamped));
+				if (cycleTime != cycleTimeClamped) {
+					throw new IllegalArgumentException(value + " is out of range. CycleTime must be between 1 and 999.");
+				}
+				break;
+			case AUTO_LOGOUT:
+				int autoLogout = parseIntOrThrow(value, "AutoLogout");
+				int autoLogoutClamp  = clamp(autoLogout, 0, 99);
+
+				deviceConfig.setAutoLogout(String.valueOf(autoLogoutClamp));
+
+				if (autoLogout != autoLogoutClamp) {
+					throw new IllegalArgumentException(value + " is out of range. AutoLogout must be between 0 and 99.");
+				}
 				break;
 			case DISABLE_OFF:
 				deviceConfig.setDisableOff(value);
@@ -1470,13 +1476,37 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			case UPGRADE_ENABLE:
 				deviceConfig.setUpgradeEnable(value);
 				break;
-			case AUTO_LOGOUT:
-				deviceConfig.setAutoLogout(value);
-				break;
 			default:
 				throw new IllegalArgumentException("Unhandled configuration field: " + configField);
 		}
 		return new G2ConfigurationRequest(loginInfo.getToken(), deviceMAC, deviceConfig);
+	}
+
+	/**
+	 * Parses the given string into an integer, throwing an {@link IllegalArgumentException} on invalid input.
+	 *
+	 * @param value     raw input value
+	 * @param fieldName field name used in the error message
+	 * @return parsed integer value
+	 */
+	private int parseIntOrThrow(String value, String fieldName) {
+		try {
+			return Integer.parseInt(value == null ? "" : value.trim());
+		} catch (Exception e) {
+			throw new IllegalArgumentException(fieldName + " must be a valid integer.", e);
+		}
+	}
+
+	/**
+	 * Clamps the given value to the provided inclusive range.
+	 *
+	 * @param value   value to clamp
+	 * @param min minimum allowed value (inclusive)
+	 * @param max maximum allowed value (inclusive)
+	 * @return clamped value within {@code [min, max]}
+	 */
+	private int clamp(int value, int min, int max) {
+		return Math.max(min, Math.min(max, value));
 	}
 
 	/**
