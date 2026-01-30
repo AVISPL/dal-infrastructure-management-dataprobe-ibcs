@@ -144,7 +144,10 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * How much time last monitoring cycle took to finish
 	 */
-	private Long lastMonitoringCycleDuration;
+	private double lastMonitoringCycleDuration;
+
+	/** True if device data was actually collected in the current monitoring cycle. */
+	private volatile boolean didCollectThisCycle;
 
 	/**
 	 * Adapter metadata properties - adapter version and build date
@@ -251,7 +254,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		public void run() {
 			loop:
 			while (inProgress) {
-				long startCycle = System.currentTimeMillis();
 				try {
 					try {
 						TimeUnit.MILLISECONDS.sleep(500);
@@ -278,6 +280,8 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 							logger.info(String.format("Sleep for 1 second was interrupted with error message: %s", e.getMessage()));
 						}
 					}
+					didCollectThisCycle = false;
+					long startCycle = System.currentTimeMillis();
 
 					try {
 						if (logger.isDebugEnabled()) {
@@ -288,7 +292,9 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
 					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + systemMonitoringCycleInterval;
-					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
+					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000.0;
+					didCollectThisCycle = true;
+
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
 					if (logger.isDebugEnabled()) {
@@ -1128,7 +1134,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void retrieveMetadata(Map<String, String> stats, Map<String, String> dynamicStatistics) {
 		try {
-			if (lastMonitoringCycleDuration != null) {
+			if (didCollectThisCycle) {
 				dynamicStatistics.put(DataprobeConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
 			}
 
