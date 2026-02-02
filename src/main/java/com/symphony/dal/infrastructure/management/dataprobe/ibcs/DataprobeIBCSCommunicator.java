@@ -146,9 +146,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private double lastMonitoringCycleDuration;
 
-	/** True if device data was actually collected in the current monitoring cycle. */
-	private volatile boolean didCollectThisCycle;
-
 	/**
 	 * Adapter metadata properties - adapter version and build date
 	 */
@@ -280,7 +277,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 							logger.info(String.format("Sleep for 1 second was interrupted with error message: %s", e.getMessage()));
 						}
 					}
-					didCollectThisCycle = false;
 					long startCycle = System.currentTimeMillis();
 
 					try {
@@ -293,7 +289,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					}
 					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + systemMonitoringCycleInterval;
 					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000.0;
-					didCollectThisCycle = true;
 
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
@@ -1134,10 +1129,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void retrieveMetadata(Map<String, String> stats, Map<String, String> dynamicStatistics) {
 		try {
-			if (didCollectThisCycle) {
-				dynamicStatistics.put(DataprobeConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
-			}
-
+			dynamicStatistics.put(DataprobeConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
 			stats.put(DataprobeConstant.ADAPTER_VERSION,
 					Util.getDefaultValueForNullData(adapterProperties.getProperty("aggregator.version")));
 			stats.put(DataprobeConstant.ADAPTER_BUILD_DATE,
