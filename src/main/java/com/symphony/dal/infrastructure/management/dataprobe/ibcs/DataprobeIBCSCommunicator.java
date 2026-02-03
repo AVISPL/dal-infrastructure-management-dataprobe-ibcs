@@ -144,7 +144,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * How much time last monitoring cycle took to finish
 	 */
-	private double lastMonitoringCycleDuration;
+	private long lastMonitoringCycleDuration;
 
 	/**
 	 * Adapter metadata properties - adapter version and build date
@@ -266,8 +266,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 							logger.info(String.format("Sleep for 1 second was interrupted with error message: %s", e.getMessage()));
 						}
 					}
-					long startCycle = System.currentTimeMillis();
-
 					long startCycle = System.currentTimeMillis();
 					try {
 						if (logger.isDebugEnabled()) {
