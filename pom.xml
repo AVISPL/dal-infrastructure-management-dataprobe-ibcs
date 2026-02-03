@@ -99,9 +99,9 @@
         <dependency>
             <groupId>com.avispl.symphony.dal</groupId>
             <artifactId>symphony-dal-commons</artifactId>
-            <version>6.3.0</version>
+            <version>6.5.0</version>
             <scope>system</scope>
-            <systemPath>${basedir}/lib/symphony-dal-commons-6.3.0.jar</systemPath>
+            <systemPath>${basedir}/lib/symphony-dal-commons-6.5.0.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.icmp4j</groupId>
