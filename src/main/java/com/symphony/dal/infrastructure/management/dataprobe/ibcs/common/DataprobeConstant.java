@@ -48,7 +48,7 @@ public class DataprobeConstant {
 	public static final String ADAPTER_BUILD_DATE = "AdapterBuildDate";
 	public static final String ADAPTER_UPTIME_MIN = "AdapterUptime(min)";
 	public static final String ADAPTER_UPTIME = "AdapterUptime";
-	public static final String SYSTEM_MONITORING_CYCLE = "SystemMonitoringCycleInterval";
+	public static final String SYSTEM_MONITORING_CYCLE = "SystemMonitoringCycleInterval(s)";
 	public static final String ACTIVE_PROPERTY_GROUPS = "ActivePropertyGroups";
 
 	/* Response properties */

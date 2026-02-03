@@ -144,7 +144,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	/**
 	 * How much time last monitoring cycle took to finish
 	 */
-	private Long lastMonitoringCycleDuration;
+	private double lastMonitoringCycleDuration;
 
 	/**
 	 * Adapter metadata properties - adapter version and build date
@@ -195,17 +195,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	private long nextDevicesCollectionIterationTimestamp;
 
 	/**
-	 * Current monitoring cycle interval - amount of time that passes between 2 consecutive getMultipleStatistics calls
-	 * 60000ms by default
-	 * */
-	private volatile long systemMonitoringCycleInterval = 60000;
-
-	/**
-	 * Timestamp of the last getMultipleStatistics() call
-	 * */
-	private long lastMultipleStatisticsRetrievalTimestamp;
-
-	/**
 	 * This parameter holds timestamp of when we need to stop performing API calls
 	 * It used when device stop retrieving statistic. Updated each time of called #retrieveMultipleStatistics
 	 */
@@ -251,7 +240,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		public void run() {
 			loop:
 			while (inProgress) {
-				long startCycle = System.currentTimeMillis();
 				try {
 					try {
 						TimeUnit.MILLISECONDS.sleep(500);
@@ -278,6 +266,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 							logger.info(String.format("Sleep for 1 second was interrupted with error message: %s", e.getMessage()));
 						}
 					}
+					long startCycle = System.currentTimeMillis();
 
 					try {
 						if (logger.isDebugEnabled()) {
@@ -287,7 +276,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					} catch (Exception e) {
 						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
-					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + systemMonitoringCycleInterval;
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
 					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
@@ -586,12 +575,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	@Override
 	public List<Statistics> getMultipleStatistics() throws Exception {
 		reentrantLock.lock();
-
-		long currentTime = System.currentTimeMillis();
-		if (lastMultipleStatisticsRetrievalTimestamp > 0) {
-			systemMonitoringCycleInterval = currentTime - lastMultipleStatisticsRetrievalTimestamp;
-		}
-		lastMultipleStatisticsRetrievalTimestamp = currentTime;
 
 		try {
 			if (loginInfo == null) {
@@ -1128,10 +1111,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void retrieveMetadata(Map<String, String> stats, Map<String, String> dynamicStatistics) {
 		try {
-			if (lastMonitoringCycleDuration != null) {
-				dynamicStatistics.put(DataprobeConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
-			}
-
+			dynamicStatistics.put(DataprobeConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
 			stats.put(DataprobeConstant.ADAPTER_VERSION,
 					Util.getDefaultValueForNullData(adapterProperties.getProperty("aggregator.version")));
 			stats.put(DataprobeConstant.ADAPTER_BUILD_DATE,
@@ -1139,7 +1119,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			long adapterUptime = System.currentTimeMillis() - adapterInitializationTimestamp;
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
-			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(systemMonitoringCycleInterval));
+			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate() * 60));
 			stats.put(DataprobeConstant.ACTIVE_PROPERTY_GROUPS, this.getDisplayPropertyGroups());
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
