@@ -216,7 +216,6 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 		public void run() {
 			loop:
 			while (inProgress) {
-				long startCycle = System.currentTimeMillis();
 				try {
 					try {
 						TimeUnit.MILLISECONDS.sleep(500);
@@ -244,6 +243,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						}
 					}
 
+					long startCycle = System.currentTimeMillis();
 					try {
 						if (logger.isDebugEnabled()) {
 							logger.debug("Fetching devices list");
