@@ -276,7 +276,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
 					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
-					lastMonitoringCycleDuration = (System.currentTimeMillis() - startCycle) / 1000;
+					lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
 					if (logger.isDebugEnabled()) {
