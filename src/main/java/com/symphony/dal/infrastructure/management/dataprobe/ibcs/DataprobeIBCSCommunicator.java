@@ -1116,6 +1116,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 			stats.put(DataprobeConstant.ADAPTER_BUILD_DATE,
 					Util.getDefaultValueForNullData(adapterProperties.getProperty("aggregator.build.date")));
 			long adapterUptime = System.currentTimeMillis() - adapterInitializationTimestamp;
+
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
 			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate() * 60));
