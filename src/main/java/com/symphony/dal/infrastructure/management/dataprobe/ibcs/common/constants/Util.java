@@ -247,12 +247,12 @@ public class Util {
 
 	/**
 	 * Uptime is received in seconds, need to normalize it and make it human-readable, like
-	 * 1 day(s) 5 hour(s) 12 minute(s) 55 minute(s)
+	 * 1 day 5 hour 12 minute 55 minute
 	 * Incoming parameter is may have a decimal point, so in order to safely process this - it's rounded first.
 	 * We don't need to add a segment of time if it's 0.
 	 *
 	 * @param uptimeSeconds value in seconds
-	 * @return string value of format 'x day(s) x hour(s) x minute(s) x minute(s)'
+	 * @return string value of format 'x d x hr x min x sec'
 	 */
 	public static String normalizeUptime(long uptimeSeconds) {
 		StringBuilder normalizedUptime = new StringBuilder();
@@ -263,16 +263,16 @@ public class Util {
 		long days = uptimeSeconds / 86400;
 
 		if (days > 0) {
-			normalizedUptime.append(days).append(" day(s) ");
+			normalizedUptime.append(days).append(" d ");
 		}
 		if (hours > 0) {
-			normalizedUptime.append(hours).append(" hour(s) ");
+			normalizedUptime.append(hours).append(" hr ");
 		}
 		if (minutes > 0) {
-			normalizedUptime.append(minutes).append(" minute(s) ");
+			normalizedUptime.append(minutes).append(" min ");
 		}
 		if (seconds > 0) {
-			normalizedUptime.append(seconds).append(" second(s)");
+			normalizedUptime.append(seconds).append(" sec");
 		}
 		return normalizedUptime.toString().trim();
 	}
