@@ -42,13 +42,13 @@ public class DataprobeConstant {
 	public static final String OPEN_PARENTHESIS = "(";
 	public static final String CLOSE_PARENTHESIS = ")";
 
-	public static final String MONITORING_CYCLE_DURATION = "LastMonitoringCycleDuration(s)";
+	public static final String MONITORING_CYCLE_DURATION = "LastMonitoringCycleDuration(sec)";
 	public static final String ADAPTER_VERSION = "AdapterVersion";
 	public static final String MONITORED_DEVICES_TOTAL = "MonitoredDevicesTotal";
 	public static final String ADAPTER_BUILD_DATE = "AdapterBuildDate";
 	public static final String ADAPTER_UPTIME_MIN = "AdapterUptime(min)";
 	public static final String ADAPTER_UPTIME = "AdapterUptime";
-	public static final String SYSTEM_MONITORING_CYCLE = "MonitoringCycleInterval(s)";
+	public static final String SYSTEM_MONITORING_CYCLE = "MonitoringCycleInterval(min)";
 	public static final String ACTIVE_PROPERTY_GROUPS = "ActivePropertyGroups";
 
 	/* Response properties */
