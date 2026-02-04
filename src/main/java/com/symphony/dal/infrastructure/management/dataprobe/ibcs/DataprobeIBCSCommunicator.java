@@ -1031,7 +1031,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createDropdown(name, listInitial, Util.uppercaseFirstCharacter(value)), Util.uppercaseFirstCharacter(value));
 					break;
 				case AUTO_LOGOUT:
-					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(minutes)", value), value);
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(min)", value), value);
 					stats.remove(name);
 					mappingValue.remove(name);
 					break;
