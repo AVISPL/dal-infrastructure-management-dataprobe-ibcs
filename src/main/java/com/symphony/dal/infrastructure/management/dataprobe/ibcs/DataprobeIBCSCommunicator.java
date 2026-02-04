@@ -1036,7 +1036,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					mappingValue.remove(name);
 					break;
 				case CYCLE_TIME:
-					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(s)", value), value);
+					Util.addAdvancedControlProperties(controls, stats, ControllablePropertyFactory.createNumeric(name + "(sec)", value), value);
 					stats.remove(name);
 					mappingValue.remove(name);
 					break;
@@ -1412,7 +1412,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 	 * Builds a {@link G2ConfigurationRequest} for a single device configuration change
 	 * based on the given control property and value.
 	 *
-	 * @param controlProperty the configuration control property (e.g. "Configuration#AutoLogout(s)")
+	 * @param controlProperty the configuration control property (e.g. "Configuration#AutoLogout(sec)")
 	 * @param deviceMAC       the MAC address of the target device
 	 * @param value           the new value to apply for the configuration field
 	 * @throws IllegalArgumentException     if the control property cannot be mapped to a configuration field
