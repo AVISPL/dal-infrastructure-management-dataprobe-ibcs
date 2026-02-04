@@ -1119,7 +1119,7 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
-			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate() * 60));
+			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
 			stats.put(DataprobeConstant.ACTIVE_PROPERTY_GROUPS, this.getDisplayPropertyGroups());
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
