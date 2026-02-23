@@ -275,7 +275,12 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 					} catch (Exception e) {
 						logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 					}
-					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
+					try {
+						nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
+					} catch (NoSuchMethodError nsme) {
+						nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 60000L;
+						logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+					}
 					lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 
@@ -1119,8 +1124,12 @@ public class DataprobeIBCSCommunicator extends RestCommunicator implements Aggre
 
 			stats.put(DataprobeConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DataprobeConstant.ADAPTER_UPTIME, Util.normalizeUptime(adapterUptime / 1000));
-			stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
 			stats.put(DataprobeConstant.ACTIVE_PROPERTY_GROUPS, this.getDisplayPropertyGroups());
+			try {
+				stats.put(DataprobeConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
+			} catch (NoSuchMethodError nsme){
+				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", nsme);
+			}
 			dynamicStatistics.put(DataprobeConstant.MONITORED_DEVICES_TOTAL, String.valueOf(aggregatedDeviceList.size()));
 		} catch (Exception e) {
 			logger.error("Failed to populate metadata information", e);
